@@ -3,6 +3,7 @@ mod itree;
 mod jif;
 mod ord;
 mod pheader;
+mod read;
 mod utils;
 
 pub use error::*;
