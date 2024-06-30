@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "jif",
+    "readjif",
+]
+
+resolver = "2"
