@@ -25,6 +25,15 @@ pub enum PheaderError {
         end: u64,
         pathname_offset: u32,
     },
+    InvalidOffset {
+        offset: u32,
+        size: u32,
+    },
+    InvalidITreeIndex {
+        index: u32,
+        tree_len: u32,
+        len: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -102,8 +111,22 @@ impl std::fmt::Display for PheaderError {
                 end,
                 pathname_offset,
             } => f.write_fmt(format_args!(
-                "range [{:x}; {:x}) and pathname offset {:x} are not equally valid",
+                "range [{:#x}; {:#x}) and pathname offset {:#x} are not equally valid",
                 begin, end, pathname_offset
+            )),
+            PheaderError::InvalidOffset { offset, size } => f.write_fmt(format_args!(
+                "string offset ({:#x}) overflows size ({:#x})",
+                offset, size
+            )),
+            PheaderError::InvalidITreeIndex {
+                index,
+                tree_len,
+                len,
+            } => f.write_fmt(format_args!(
+                "itree node index range [{}; {}) overflows len ({})",
+                index,
+                index.saturating_add(*tree_len),
+                len
             )),
         }
     }

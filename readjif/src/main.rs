@@ -15,7 +15,7 @@ fn main() -> JifResult<()> {
     let args = Cli::parse();
     let mut file = BufReader::new(File::open(&args.jif_file)?);
 
-    let jif = JifFile::from_reader(&mut file)?;
+    let jif = Jif::from_reader(&mut file)?;
     println!("{:#x?}", jif);
     Ok(())
 }
