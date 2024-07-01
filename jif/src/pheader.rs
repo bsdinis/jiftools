@@ -9,14 +9,14 @@ pub enum Prot {
 }
 
 pub struct JifPheader {
-    vaddr_range: (u64, u64),
-    data_range: (u64, u64),
+    pub(crate) vaddr_range: (u64, u64),
+    pub(crate) data_range: (u64, u64),
 
     /// reference path + offset range
-    ref_range: Option<(String, u64, u64)>,
+    pub(crate) ref_range: Option<(String, u64, u64)>,
 
-    itree: Option<ITree>,
-    prot: u8,
+    pub(crate) itree: Option<ITree>,
+    pub(crate) prot: u8,
 }
 
 pub struct JifRawPheader {

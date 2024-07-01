@@ -9,13 +9,21 @@ use std::io::BufReader;
 struct Cli {
     #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     jif_file: std::path::PathBuf,
+
+    #[arg(long)]
+    raw: bool,
 }
 
 fn main() -> JifResult<()> {
     let args = Cli::parse();
     let mut file = BufReader::new(File::open(&args.jif_file)?);
 
-    let jif = Jif::from_reader(&mut file)?;
-    println!("{:#x?}", jif);
+    if args.raw {
+        let jif = JifRaw::from_reader(&mut file)?;
+        println!("{:#x?}", jif);
+    } else {
+        let jif = Jif::from_reader(&mut file)?;
+        println!("{:#x?}", jif);
+    }
     Ok(())
 }

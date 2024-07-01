@@ -45,3 +45,16 @@ pub(crate) const fn is_aligned<const ALIGNMENT: u64>(v: u64) -> bool {
 pub(crate) const fn is_page_aligned(v: u64) -> bool {
     is_aligned::<0x1000>(v)
 }
+
+pub(crate) const fn align<const ALIGNMENT: u64>(val: u64) -> u64 {
+    let delta = val % ALIGNMENT;
+    if delta != 0 {
+        val + ALIGNMENT - delta
+    } else {
+        val
+    }
+}
+
+pub(crate) const fn page_align(val: u64) -> u64 {
+    align::<0x1000>(val)
+}

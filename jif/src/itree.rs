@@ -2,7 +2,7 @@ pub(crate) const FANOUT: usize = 4;
 pub(crate) const IVAL_PER_NODE: usize = FANOUT - 1;
 
 pub struct ITree {
-    nodes: Vec<ITreeNode>,
+    pub(crate) nodes: Vec<ITreeNode>,
 }
 
 #[derive(Clone)]
@@ -18,18 +18,26 @@ impl ITreeNode {
     pub(crate) fn new(ranges: [Interval; IVAL_PER_NODE]) -> Self {
         ITreeNode { ranges }
     }
+
+    pub(crate) fn ranges(&self) -> &[Interval] {
+        &self.ranges
+    }
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct Interval {
-    start: u64,
-    end: u64,
-    offset: u64,
+    pub(crate) start: u64,
+    pub(crate) end: u64,
+    pub(crate) offset: u64,
 }
 
 impl ITree {
     pub fn new(nodes: Vec<ITreeNode>) -> Self {
         ITree { nodes }
+    }
+
+    pub fn n_nodes(&self) -> usize {
+        self.nodes.len()
     }
 }
 

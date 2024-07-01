@@ -1,12 +1,11 @@
 use crate::error::*;
-use crate::itree::{ITree, ITreeNode};
+use crate::itree::ITreeNode;
 use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
 use crate::ord::OrdChunk;
 use crate::pheader::JifRawPheader;
 use crate::utils::{is_page_aligned, read_u32, seek_to_page};
 
 use std::io::{BufReader, Read, Seek};
-use std::str::from_utf8;
 
 impl JifRaw {
     pub fn from_reader<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<Self> {
@@ -86,51 +85,9 @@ impl JifRaw {
             data_segments,
         })
     }
-
-    pub fn strings(&self) -> Vec<&str> {
-        let first_last_zero = self
-            .strings_backing
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, c)| **c != 0u8)
-            .map(|(idx, _)| std::cmp::min(idx + 1, self.strings_backing.len()))
-            .unwrap_or(self.strings_backing.len());
-
-        self.strings_backing[..first_last_zero]
-            .split(|x| *x == 0)
-            .map(|s| from_utf8(s).unwrap_or("<failed to parse>"))
-            .collect::<Vec<&str>>()
-    }
-
-    pub fn string_at_offset(&self, offset: usize) -> Option<&str> {
-        if offset > self.strings_backing.len() {
-            return None;
-        }
-
-        self.strings_backing[offset..]
-            .split(|x| *x == 0)
-            .map(|s| from_utf8(s).unwrap_or("<failed to parse>"))
-            .next()
-    }
-
-    pub fn get_itree(&self, index: usize, n: usize) -> Option<ITree> {
-        if index.saturating_add(n) > self.itree_nodes.len() {
-            return None;
-        }
-
-        let nodes = self
-            .itree_nodes
-            .iter()
-            .skip(index)
-            .take(n)
-            .cloned()
-            .collect::<Vec<_>>();
-
-        Some(ITree::new(nodes))
-    }
 }
 
+#[derive(Debug)]
 struct JifHeader {
     n_pheaders: u32,
     strings_size: u32,
