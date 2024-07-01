@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use crate::itree::ITree;
+use crate::error::*;
+use crate::itree::{ITree, ITreeNode};
 use crate::jif::JifRaw;
 
 #[repr(u8)]
@@ -12,7 +13,7 @@ pub enum Prot {
 
 pub struct JifPheader {
     pub(crate) vaddr_range: (u64, u64),
-    pub(crate) data_range: (u64, u64),
+    pub(crate) data_segment: Vec<u8>,
 
     /// reference path + offset range
     pub(crate) ref_range: Option<(String, u64, u64)>,
@@ -40,9 +41,56 @@ pub struct JifRawPheader {
 }
 
 impl JifPheader {
-    pub(crate) fn from_raw(jif: &JifRaw, raw: &JifRawPheader) -> Self {
+    pub(crate) fn from_raw(
+        jif: &JifRaw,
+        raw: &JifRawPheader,
+        data_segments: &mut BTreeMap<u64, Vec<u8>>,
+    ) -> JifResult<Self> {
+        fn extract_data_segment(
+            data_segments: &mut BTreeMap<u64, Vec<u8>>,
+            begin: u64,
+            end: u64,
+        ) -> Option<Vec<u8>> {
+            let key = data_segments
+                .iter()
+                .find(|(addr, data)| {
+                    **addr <= begin && end as usize <= **addr as usize + data.len()
+                })
+                .map(|(addr, _)| addr)
+                .copied();
+
+            if let Some(addr) = key {
+                let mut data = data_segments.remove(&addr).expect("we just found this key");
+                let offset = begin - addr;
+
+                // cut off region before `begin`
+                let mut segment = if offset == 0 {
+                    data
+                } else {
+                    let segment = data.split_off(offset as usize);
+                    data_segments.insert(addr, data);
+                    segment
+                };
+
+                // cut off region after end
+                let len = end - begin;
+                if segment.len() > len as usize {
+                    let leftover = segment.split_off(len as usize);
+                    data_segments.insert(end, leftover);
+                }
+
+                Some(segment)
+            } else {
+                None
+            }
+        }
+
         let vaddr_range = (raw.vbegin, raw.vend);
-        let data_range = (raw.data_begin, raw.data_end);
+        let data_segment = extract_data_segment(data_segments, raw.data_begin, raw.data_end)
+            .ok_or(JifError::DataSegmentNotFound {
+                begin: raw.data_begin,
+                end: raw.data_end,
+            })?;
 
         let ref_range = jif
             .string_at_offset(raw.pathname_offset as usize)
@@ -50,13 +98,13 @@ impl JifPheader {
 
         let itree = jif.get_itree(raw.itree_idx as usize, raw.itree_n_nodes as usize);
 
-        JifPheader {
+        Ok(JifPheader {
             vaddr_range,
-            data_range,
+            data_segment,
             ref_range,
             itree,
             prot: raw.prot,
-        }
+        })
     }
 }
 
@@ -66,12 +114,19 @@ impl JifRawPheader {
     }
 
     pub(crate) fn from_materialized(
-        jif: JifPheader,
-        itree_idx: usize,
+        mut jif: JifPheader,
         string_map: &BTreeMap<String, usize>,
-    ) -> (JifRawPheader, Option<ITree>) {
+        itree_nodes: &mut Vec<ITreeNode>,
+        data_cursor: &mut u64,
+        data: &mut Vec<u8>,
+    ) -> JifRawPheader {
         let (vbegin, vend) = jif.vaddr_range;
-        let (data_begin, data_end) = jif.data_range;
+
+        let data_begin = *data_cursor;
+        *data_cursor += jif.data_segment.len() as u64;
+        let data_end = *data_cursor;
+        data.append(&mut jif.data_segment);
+
         let (ref_begin, ref_end, pathname_offset) = if let Some((name, begin, end)) = jif.ref_range
         {
             let offset = string_map
@@ -83,27 +138,27 @@ impl JifRawPheader {
             (u64::MAX, u64::MAX, u32::MAX)
         };
 
-        let (itree_idx, itree_n_nodes) = jif
-            .itree
-            .as_ref()
-            .map(|i| (itree_idx as u32, i.n_nodes() as u32))
-            .unwrap_or((u32::MAX, 0));
+        let (itree_idx, itree_n_nodes) = if let Some(mut itree) = jif.itree {
+            let idx = itree_nodes.len() as u32;
+            let len = itree.nodes.len() as u32;
+            itree_nodes.append(&mut itree.nodes);
+            (idx, len)
+        } else {
+            (u32::MAX, 0)
+        };
 
-        (
-            JifRawPheader {
-                vbegin,
-                vend,
-                data_begin,
-                data_end,
-                ref_begin,
-                ref_end,
-                itree_idx,
-                itree_n_nodes,
-                pathname_offset,
-                prot: jif.prot,
-            },
-            jif.itree,
-        )
+        JifRawPheader {
+            vbegin,
+            vend,
+            data_begin,
+            data_end,
+            ref_begin,
+            ref_end,
+            itree_idx,
+            itree_n_nodes,
+            pathname_offset,
+            prot: jif.prot,
+        }
     }
 }
 
@@ -116,10 +171,7 @@ impl std::fmt::Debug for JifPheader {
                 "virtual_area",
                 &format!("[{:#x}, {:#x})", self.vaddr_range.0, self.vaddr_range.1),
             )
-            .field(
-                "data",
-                &format!("[{:#x}, {:#x})", self.data_range.0, self.data_range.1),
-            );
+            .field("data_size", &format!("{:#x} B", self.data_segment.len()));
 
         if let Some((path, start, end)) = &self.ref_range {
             dbg_struct.field(
@@ -176,7 +228,7 @@ impl std::fmt::Debug for JifRawPheader {
             dbg_struct.field(
                 "ref",
                 &format!(
-                    "[{:#x}, {:#x}) (path_offset: {})",
+                    "[{:#x}, {:#x}) (path_offset: {:#x})",
                     self.ref_begin, self.ref_end, self.pathname_offset
                 ),
             );

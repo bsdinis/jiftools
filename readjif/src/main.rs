@@ -14,7 +14,7 @@ struct Cli {
     raw: bool,
 }
 
-fn main() -> JifResult<()> {
+fn func() -> JifResult<()> {
     let args = Cli::parse();
     let mut file = BufReader::new(File::open(&args.jif_file)?);
 
@@ -26,4 +26,10 @@ fn main() -> JifResult<()> {
         println!("{:#x?}", jif);
     }
     Ok(())
+}
+
+fn main() {
+    if let Err(e) = func() {
+        eprintln!("{}", e);
+    }
 }

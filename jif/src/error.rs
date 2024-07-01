@@ -14,6 +14,10 @@ pub enum JifError {
         itree_node_idx: usize,
         itree_node_err: ITreeNodeError,
     },
+    DataSegmentNotFound {
+        begin: u64,
+        end: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -74,6 +78,10 @@ impl std::fmt::Display for JifError {
                 "bad itree node (idx = {}): {:x?}",
                 itree_node_idx, itree_node_err
             )),
+            JifError::DataSegmentNotFound { begin, end } => f.write_fmt(format_args!(
+                "could not find full data segment at [{:#x}; {:#x})",
+                begin, end
+            )),
         }
     }
 }
@@ -87,6 +95,7 @@ impl std::error::Error for JifError {
             JifError::BadAlignment => None,
             JifError::BadPheader { pheader_err, .. } => Some(pheader_err),
             JifError::BadITreeNode { itree_node_err, .. } => Some(itree_node_err),
+            JifError::DataSegmentNotFound { .. } => None,
         }
     }
 }
