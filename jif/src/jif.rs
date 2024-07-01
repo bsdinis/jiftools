@@ -47,7 +47,80 @@ impl Jif {
         Ok(Jif::from_raw(JifRaw::from_reader(r)?))
     }
 
+    pub fn to_writer<W: Write>(self, w: &mut W) -> JifResult<usize> {
+        let raw = JifRaw::from_materialized(self);
+        raw.to_writer(w)
+    }
+}
+
 impl JifRaw {
+    pub fn from_materialized(jif: Jif) -> Self {
+        let string_map = {
+            let strings = jif
+                .pheaders
+                .iter()
+                .filter_map(|phdr| phdr.ref_range.clone().map(|s| s.0.clone()))
+                .collect::<HashSet<_>>();
+
+            let mut offset = 0;
+            let string_map = strings
+                .into_iter()
+                .map(|s| {
+                    let r = (s, offset);
+                    offset += r.0.len();
+                    r
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            string_map
+        };
+
+        let mut itree_idx = 0;
+        let mut itree_nodes = Vec::new();
+        let pheaders = jif
+            .pheaders
+            .into_iter()
+            .map(|phdr| {
+                let (phdr, itree) = JifRawPheader::from_materialized(phdr, itree_idx, &string_map);
+                if let Some(mut it) = itree {
+                    itree_idx += it.n_nodes();
+                    itree_nodes.append(&mut it.nodes);
+                }
+                phdr
+            })
+            .collect::<Vec<_>>();
+
+        let strings = {
+            let mut m = string_map.into_iter().collect::<Vec<_>>();
+            m.sort_by_key(|(_s, off)| *off);
+            m
+        };
+
+        let strings_size = strings
+            .last()
+            .map(|(s, off)| off + s.len() + 1 /* NUL */)
+            .unwrap_or(0);
+
+        let strings_backing = {
+            let mut s = Vec::with_capacity(strings_size);
+            for (string, _offset) in strings {
+                s.append(&mut string.into_bytes());
+                s.push(0); // NUL byte
+            }
+
+            s
+        };
+
+        JifRaw {
+            pheaders,
+            strings_backing,
+            itree_nodes,
+            ord_chunks: jif.ord_chunks,
+            data_offset: jif.data_offset,
+            data_segments: jif.data_segments,
+        }
+    }
+
     pub fn strings(&self) -> Vec<&str> {
         let first_last_zero = self
             .strings_backing

@@ -5,6 +5,7 @@ mod ord;
 mod pheader;
 mod read;
 mod utils;
+mod write;
 
 pub use error::*;
 pub use itree::*;

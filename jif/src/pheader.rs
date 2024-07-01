@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::itree::ITree;
 use crate::jif::JifRaw;
 
@@ -61,6 +63,47 @@ impl JifPheader {
 impl JifRawPheader {
     pub const fn serialized_size() -> usize {
         6 * std::mem::size_of::<u64>() + 3 * std::mem::size_of::<u32>() + std::mem::size_of::<u8>()
+    }
+
+    pub(crate) fn from_materialized(
+        jif: JifPheader,
+        itree_idx: usize,
+        string_map: &BTreeMap<String, usize>,
+    ) -> (JifRawPheader, Option<ITree>) {
+        let (vbegin, vend) = jif.vaddr_range;
+        let (data_begin, data_end) = jif.data_range;
+        let (ref_begin, ref_end, pathname_offset) = if let Some((name, begin, end)) = jif.ref_range
+        {
+            let offset = string_map
+                .get(&name)
+                .map(|offset| *offset as u32)
+                .unwrap_or(u32::MAX);
+            (begin, end, offset)
+        } else {
+            (u64::MAX, u64::MAX, u32::MAX)
+        };
+
+        let (itree_idx, itree_n_nodes) = jif
+            .itree
+            .as_ref()
+            .map(|i| (itree_idx as u32, i.n_nodes() as u32))
+            .unwrap_or((u32::MAX, 0));
+
+        (
+            JifRawPheader {
+                vbegin,
+                vend,
+                data_begin,
+                data_end,
+                ref_begin,
+                ref_end,
+                itree_idx,
+                itree_n_nodes,
+                pathname_offset,
+                prot: jif.prot,
+            },
+            jif.itree,
+        )
     }
 }
 

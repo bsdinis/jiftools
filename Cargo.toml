@@ -1,8 +1,7 @@
 [workspace]
 
 members = [
-    "jif",
-    "readjif",
+    "jif", "jiftool", "readjif",
 ]
 
 resolver = "2"
