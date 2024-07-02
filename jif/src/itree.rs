@@ -25,6 +25,12 @@ impl ITreeNode {
     pub(crate) fn ranges(&self) -> &[Interval] {
         &self.ranges
     }
+
+    pub(crate) fn shift_offsets(&mut self, new_base: i64) {
+        for interval in self.ranges.iter_mut() {
+            interval.shift_offset(new_base);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -245,6 +251,12 @@ impl ITree {
         ITree::new(nodes)
     }
 
+    pub fn shift_offsets(&mut self, new_base: i64) {
+        for n in self.nodes.iter_mut() {
+            n.shift_offsets(new_base)
+        }
+    }
+
     pub fn n_nodes(&self) -> usize {
         self.nodes.len()
     }
@@ -260,7 +272,17 @@ impl Interval {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.start == u64::MAX || self.end == u64::MAX || self.offset == u64::MAX
+        self.start == u64::MAX || self.end == u64::MAX
+    }
+
+    pub(crate) fn shift_offset(&mut self, new_base: i64) {
+        if !self.is_empty() && self.offset != u64::MAX {
+            if new_base > 0 {
+                self.offset += new_base as u64
+            } else {
+                self.offset -= new_base.abs() as u64
+            }
+        }
     }
 }
 

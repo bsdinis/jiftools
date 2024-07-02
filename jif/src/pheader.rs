@@ -99,7 +99,13 @@ impl JifPheader {
             .string_at_offset(raw.pathname_offset as usize)
             .map(|s| (s.to_string(), raw.ref_begin, raw.ref_end));
 
-        let itree = jif.get_itree(raw.itree_idx as usize, raw.itree_n_nodes as usize);
+        let itree = {
+            let mut it = jif.get_itree(raw.itree_idx as usize, raw.itree_n_nodes as usize);
+            if let Some(ref mut itree) = it {
+                itree.shift_offsets(-(raw.data_begin as i64));
+            }
+            it
+        };
 
         Ok(JifPheader {
             vaddr_range,
@@ -183,6 +189,8 @@ impl JifRawPheader {
         let (itree_idx, itree_n_nodes) = if let Some(mut itree) = jif.itree {
             let idx = itree_nodes.len() as u32;
             let len = itree.nodes.len() as u32;
+
+            itree.shift_offsets(data_begin as i64);
             itree_nodes.append(&mut itree.nodes);
             (idx, len)
         } else {
