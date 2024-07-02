@@ -58,3 +58,27 @@ pub(crate) const fn align<const ALIGNMENT: u64>(val: u64) -> u64 {
 pub(crate) const fn page_align(val: u64) -> u64 {
     align::<0x1000>(val)
 }
+
+pub(crate) enum PageCmp {
+    Same,
+    Diff,
+    Zero,
+}
+
+// ASSUMPTION: page.len() == 0x1000
+pub(crate) fn is_zero(page: &[u8]) -> bool {
+    page.iter().all(|x| *x == 0x00)
+}
+
+// ASSUMPTION: base.len() == overlay.len() == 0x1000
+pub(crate) fn compare_pages(base: &[u8], overlay: &[u8]) -> PageCmp {
+    if is_zero(overlay) {
+        return PageCmp::Zero;
+    }
+
+    if base == overlay {
+        PageCmp::Same
+    } else {
+        PageCmp::Diff
+    }
+}

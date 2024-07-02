@@ -87,6 +87,14 @@ impl Jif {
             + page_align(itree_size as u64)
             + page_align(ord_size as u64)
     }
+
+    pub fn build_itrees(&mut self) -> JifResult<()> {
+        for p in self.pheaders.iter_mut() {
+            p.build_itree()?;
+        }
+
+        Ok(())
+    }
 }
 
 impl JifRaw {

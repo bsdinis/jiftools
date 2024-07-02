@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
 
-use crate::error::*;
 use crate::itree::{ITree, ITreeNode};
 use crate::jif::JifRaw;
+use crate::{create_itree_from_diff, create_itree_from_zero_page, error::*};
+
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 #[repr(u8)]
 pub enum Prot {
@@ -105,6 +108,37 @@ impl JifPheader {
             itree,
             prot: raw.prot,
         })
+    }
+
+    pub fn build_itree(&mut self) -> JifResult<()> {
+        if let Some((ref_path, ref_begin, ref_end)) = &self.ref_range {
+            let len = ref_end - ref_begin;
+
+            let mut file = {
+                let mut f = BufReader::new(File::open(ref_path)?);
+                f.seek(SeekFrom::Start(*ref_begin))?;
+                f.take(len)
+            };
+
+            let base = {
+                let mut buf = Vec::with_capacity(len as usize);
+                file.read_to_end(&mut buf)?;
+                buf
+            };
+
+            self.itree = Some(create_itree_from_diff(
+                &base,
+                &mut self.data_segment,
+                self.vaddr_range.0,
+            )?);
+        } else {
+            self.itree = Some(create_itree_from_zero_page(
+                &mut self.data_segment,
+                self.vaddr_range.0,
+            )?);
+        }
+
+        Ok(())
     }
 }
 
