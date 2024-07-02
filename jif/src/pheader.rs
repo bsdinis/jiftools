@@ -140,6 +140,14 @@ impl JifPheader {
 
         Ok(())
     }
+
+    pub fn rename_file(&mut self, old: &str, new: &str) {
+        if let Some((ref mut path, _, _)) = self.ref_range {
+            if path == old {
+                *path = new.to_string();
+            }
+        }
+    }
 }
 
 impl JifRawPheader {

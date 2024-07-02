@@ -95,6 +95,12 @@ impl Jif {
 
         Ok(())
     }
+
+    pub fn rename_file(&mut self, old: &str, new: &str) {
+        for p in self.pheaders.iter_mut() {
+            p.rename_file(old, new);
+        }
+    }
 }
 
 impl JifRaw {
