@@ -101,6 +101,14 @@ impl Jif {
             p.rename_file(old, new);
         }
     }
+
+    pub fn pheaders(&self) -> &[JifPheader] {
+        &self.pheaders
+    }
+
+    pub fn ord_chunks(&self) -> &[OrdChunk] {
+        &self.ord_chunks
+    }
 }
 
 impl JifRaw {
@@ -179,6 +187,18 @@ impl JifRaw {
             return Vec::new();
         }
         self.data_segments.split_off(0)
+    }
+
+    pub fn pheaders(&self) -> &[JifRawPheader] {
+        &self.pheaders
+    }
+
+    pub fn ord_chunks(&self) -> &[OrdChunk] {
+        &self.ord_chunks
+    }
+
+    pub fn itree_nodes(&self) -> &[ITreeNode] {
+        &self.itree_nodes
     }
 
     pub fn strings(&self) -> Vec<&str> {

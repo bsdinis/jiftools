@@ -154,6 +154,27 @@ impl JifPheader {
             }
         }
     }
+
+    pub fn virtual_range(&self) -> (u64, u64) {
+        self.vaddr_range
+    }
+    pub fn data(&self) -> &[u8] {
+        &self.data_segment
+    }
+    pub fn pathname(&self) -> Option<&str> {
+        self.ref_range.as_ref().map(|(s, _, _)| s.as_str())
+    }
+    pub fn ref_range(&self) -> Option<(u64, u64)> {
+        self.ref_range
+            .as_ref()
+            .map(|(_, begin, end)| (*begin, *end))
+    }
+    pub fn itree(&self) -> Option<&ITree> {
+        self.itree.as_ref()
+    }
+    pub fn prot(&self) -> u8 {
+        self.prot
+    }
 }
 
 impl JifRawPheader {
@@ -209,6 +230,25 @@ impl JifRawPheader {
             pathname_offset,
             prot: jif.prot,
         }
+    }
+
+    pub fn virtual_range(&self) -> (u64, u64) {
+        (self.vbegin, self.vend)
+    }
+    pub fn data_range(&self) -> (u64, u64) {
+        (self.data_begin, self.data_end)
+    }
+    pub fn pathname_offset(&self) -> Option<u32> {
+        (self.pathname_offset != u32::MAX).then_some(self.pathname_offset)
+    }
+    pub fn ref_range(&self) -> Option<(u64, u64)> {
+        (self.ref_begin != u64::MAX).then_some((self.ref_begin, self.ref_end))
+    }
+    pub fn itree(&self) -> Option<(u32, u32)> {
+        (self.itree_n_nodes != 0).then_some((self.itree_idx, self.itree_n_nodes))
+    }
+    pub fn prot(&self) -> u8 {
+        self.prot
     }
 }
 
