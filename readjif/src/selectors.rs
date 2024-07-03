@@ -1,5 +1,24 @@
 use crate::utils::*;
-use crate::Command;
+
+pub(crate) const MATERIALIZED_COMMAND_USAGE: &str = "materialized command: selection over the materialized JIF representation
+
+jif                                select the whole JIF
+jif.strings                        strings in the JIF
+
+ord                                select all the ord chunks
+ord[<range>]                       select the ord chunks in the range
+ord.len                            number of ord chunks
+
+pheader                            select all the pheaders
+pheader[<range>]                   select the pheaders in the range
+pheader.len                        number of pheaders
+pheader.data                       data range of the pheaders (mixable with range and other selectors)
+pheader.path                       reference pathname (mixable with range and other selectors)
+pheader.ref_range                  reference range in the path (mixable with range and other selectors)
+pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
+pheader.prot                       area `rwx` protections (mixable with range and other selectors)
+pheader.itree                      pheader interval tree (mixable with range and other selectors)
+";
 
 #[derive(Debug)]
 pub(crate) enum MaterializedCommand {
@@ -34,6 +53,32 @@ pub(crate) enum PheaderCmd {
     },
     All,
 }
+
+pub(crate) const RAW_COMMAND_USAGE: &str = "raw command: selection over the raw JIF representation
+
+jif                                select the whole JIF
+jif.data                           size of the data section
+
+strings                            select the strings in the JIF
+
+itrees                             select all the interval trees
+itrees[<range>]                    select the interval trees in the range
+itrees.len                         number of interval trees
+
+ord                                select all the ord chunks
+ord[<range>]                       select the ord chunks in the range
+ord.len                            number of ord chunks
+
+pheader                            select all the pheaders
+pheader[<range>]                   select the pheaders in the range
+pheader.len                        number of pheaders
+pheader.data                       data range of the pheaders (mixable with range and other selectors)
+pheader.pathname_offset            reference pathname (mixable with range and other selectors)
+pheader.ref_range                  reference range in the path (mixable with range and other selectors)
+pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
+pheader.prot                       area `rwx` protections (mixable with range and other selectors)
+pheader.itree                      show the interval tree offset and size in number of nodes (mixable with range and other selectors)
+";
 
 #[derive(Debug)]
 pub(crate) enum RawCommand {
@@ -71,11 +116,11 @@ pub(crate) enum RawPheaderCmd {
     All,
 }
 
-impl TryFrom<Option<Command>> for MaterializedCommand {
+impl TryFrom<Option<String>> for MaterializedCommand {
     type Error = anyhow::Error;
-    fn try_from(cmd: Option<Command>) -> Result<Self, Self::Error> {
+    fn try_from(cmd: Option<String>) -> Result<Self, Self::Error> {
         Ok(match cmd {
-            Some(Command::Map { cmd }) => {
+            Some(cmd) => {
                 let trimmed = cmd.trim();
 
                 if trimmed.starts_with("jif") {
@@ -175,11 +220,11 @@ impl TryFrom<Option<Command>> for MaterializedCommand {
     }
 }
 
-impl TryFrom<Option<Command>> for RawCommand {
+impl TryFrom<Option<String>> for RawCommand {
     type Error = anyhow::Error;
-    fn try_from(cmd: Option<Command>) -> Result<Self, Self::Error> {
+    fn try_from(cmd: Option<String>) -> Result<Self, Self::Error> {
         Ok(match cmd {
-            Some(Command::Map { cmd }) => {
+            Some(cmd) => {
                 let trimmed = cmd.trim();
 
                 if trimmed.starts_with("jif") {

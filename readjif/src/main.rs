@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::BufReader;
 
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -17,16 +17,10 @@ struct Cli {
     #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     jif_file: std::path::PathBuf,
 
+    command: Option<String>,
+
     #[arg(long)]
     raw: bool,
-
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum Command {
-    Map { cmd: String },
 }
 
 fn select_raw(jif: JifRaw, cmd: RawCommand) {
@@ -301,11 +295,23 @@ fn main() -> anyhow::Result<()> {
 
     if args.raw {
         let jif = JifRaw::from_reader(&mut file).context("failed to open jif in raw mode")?;
-        let cmd: RawCommand = args.command.try_into()?;
+        let cmd: RawCommand = args.command.try_into().map_err(|e| {
+            anyhow::anyhow!(
+                "failed to parse raw selector command: {}\n{}",
+                e,
+                RAW_COMMAND_USAGE,
+            )
+        })?;
         select_raw(jif, cmd)
     } else {
         let jif = Jif::from_reader(&mut file).context("failed to open jif")?;
-        let cmd: MaterializedCommand = args.command.try_into()?;
+        let cmd: MaterializedCommand = args.command.try_into().map_err(|e| {
+            anyhow::anyhow!(
+                "failed to parse materialized selector command: {}\n{}",
+                e,
+                MATERIALIZED_COMMAND_USAGE
+            )
+        })?;
         select_materialized(jif, cmd)
     }
 
