@@ -28,10 +28,12 @@ impl JifRawPheader {
                 Ok(v)
             }
         }
+
         fn read_page_aligned_u64_pair<R: Read>(
             r: &mut R,
             buffer: &mut [u8; 8],
             special_value: bool,
+            allow_empty: bool,
             pheader_idx: usize,
         ) -> JifResult<(u64, u64)> {
             let begin = read_page_aligned_u64(r, buffer, special_value, pheader_idx)?;
@@ -53,7 +55,7 @@ impl JifRawPheader {
                 }
             }
 
-            if begin >= end {
+            if !allow_empty && begin >= end {
                 Err(JifError::BadPheader {
                     pheader_idx,
                     pheader_err: PheaderError::BadRange(begin, end),
@@ -64,12 +66,27 @@ impl JifRawPheader {
         }
 
         let mut buffer_8 = [0u8; 8];
-        let (vbegin, vend) =
-            read_page_aligned_u64_pair(r, &mut buffer_8, false /* special */, pheader_idx)?;
-        let (data_begin, data_end) =
-            read_page_aligned_u64_pair(r, &mut buffer_8, false /* special */, pheader_idx)?;
-        let (ref_begin, ref_end) =
-            read_page_aligned_u64_pair(r, &mut buffer_8, true /* special */, pheader_idx)?;
+        let (vbegin, vend) = read_page_aligned_u64_pair(
+            r,
+            &mut buffer_8,
+            false, /* special */
+            false, /* allow_empty */
+            pheader_idx,
+        )?;
+        let (data_begin, data_end) = read_page_aligned_u64_pair(
+            r,
+            &mut buffer_8,
+            false, /* special */
+            true,  /* allow_empty */
+            pheader_idx,
+        )?;
+        let (ref_begin, ref_end) = read_page_aligned_u64_pair(
+            r,
+            &mut buffer_8,
+            true,  /* special */
+            false, /* allow_empty */
+            pheader_idx,
+        )?;
 
         let mut buffer_4 = [0u8; 4];
         let itree_idx = read_u32(r, &mut buffer_4)?;

@@ -52,6 +52,54 @@ pub fn create_itree_from_diff(
     overlay: &mut Vec<u8>,
     virtual_base: u64,
 ) -> JifResult<ITree> {
+    fn remove_gaps(overlay: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
+        // remove trailing empty space
+        if let Some(Interval { start, end, offset }) = intervals.last() {
+            overlay.drain(((*end - virtual_base) as usize)..);
+
+            if *offset == u64::MAX {
+                overlay.drain(((*start - virtual_base) as usize)..((*end - virtual_base) as usize));
+            }
+        } else {
+            // no intervals means it is a pure segment
+            overlay.clear();
+            return;
+        }
+
+        // create drain ranges for
+        //  1. gaps between intervals
+        //  2. zero sections
+        let mut drain_ranges = Vec::new();
+        intervals
+            .iter()
+            .zip(intervals.iter().skip(1))
+            .for_each(|(i1, i2)| {
+                let gap = (
+                    (i1.end - virtual_base) as usize,
+                    (i2.start - virtual_base) as usize,
+                );
+                drain_ranges.push(gap);
+
+                if i1.offset == u64::MAX {
+                    drain_ranges.push((
+                        (i1.start - virtual_base) as usize,
+                        (i1.end - virtual_base) as usize,
+                    ));
+                }
+            });
+
+        // sort drain ranges by *descending* order of end address
+        drain_ranges.sort_by(|(_a_start, a_end), (_b_start, b_end)| b_end.cmp(a_end));
+
+        for (start, end) in drain_ranges {
+            overlay.drain(start..end);
+        }
+
+        // remove leading empty space
+        if let Some(Interval { start, .. }) = intervals.first() {
+            overlay.drain(..((*start - virtual_base) as usize));
+        }
+    }
     if !is_page_aligned(overlay.len() as u64) {
         return Err(JifError::ITreeError(ITreeError::OverlayAlignment(
             overlay.len(),
@@ -163,23 +211,24 @@ pub fn create_itree_from_diff(
         intervals.push(interval);
     }
 
-    if let Some(Interval { end, .. }) = intervals.last() {
-        overlay.drain((*end as usize - virtual_base as usize)..);
-    }
-    for (begin, end) in intervals
-        .iter()
-        .zip(intervals.iter().skip(1))
-        .map(|(i1, i2)| (i1.end - virtual_base, i2.start - virtual_base))
-        .map(|(b, e)| (b as usize, e as usize))
-        .rev()
-    {
-        overlay.drain(begin..end);
-    }
-
+    remove_gaps(overlay, virtual_base, &intervals);
     Ok(ITree::build(intervals))
 }
 
 pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> JifResult<ITree> {
+    fn remove_gaps(data: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
+        dbg!(intervals);
+
+        intervals
+            .iter()
+            .rev()
+            .filter(|i| i.offset == u64::MAX)
+            .for_each(|i| {
+                let start = (i.start - virtual_base) as usize;
+                let end = (i.end - virtual_base) as usize;
+                data.drain(start..end);
+            });
+    }
     if !is_page_aligned(data.len() as u64) {
         return Err(JifError::ITreeError(ITreeError::OverlayAlignment(
             data.len(),
@@ -233,19 +282,7 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
         intervals.push(interval);
     }
 
-    if let Some(Interval { end, .. }) = intervals.last() {
-        data.drain((*end as usize - virtual_base as usize)..);
-    }
-    for (begin, end) in intervals
-        .iter()
-        .zip(intervals.iter().skip(1))
-        .map(|(i1, i2)| (i1.end - virtual_base, i2.start - virtual_base))
-        .map(|(b, e)| (b as usize, e as usize))
-        .rev()
-    {
-        data.drain(begin..end);
-    }
-
+    remove_gaps(data, virtual_base, &intervals);
     Ok(ITree::build(intervals))
 }
 
@@ -387,7 +424,8 @@ mod test {
         let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
 
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(data.len(), 0x1000 * 5);
     }
 
     #[test]
@@ -398,7 +436,8 @@ mod test {
         let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
 
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(data.len(), 0x1000 * 0);
     }
 
     #[test]
@@ -416,7 +455,8 @@ mod test {
             Interval::new(0x3000, 0x5000, u64::MAX),
         ]);
 
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(data.len(), 0x1000 * 2);
     }
 
     #[test]
@@ -434,7 +474,8 @@ mod test {
             Interval::new(0x3000, 0x5000, 0x1000),
         ]);
 
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(data.len(), 0x1000 * 3);
     }
 
     #[test]
@@ -445,7 +486,8 @@ mod test {
 
         let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
         let target_itree = ITree::build(vec![]);
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(overlay.len(), 0x1000 * 0);
     }
 
     #[test]
@@ -456,7 +498,8 @@ mod test {
 
         let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(overlay.len(), 0x1000 * 5);
     }
 
     #[test]
@@ -467,7 +510,8 @@ mod test {
 
         let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(overlay.len(), 0x1000 * 0);
     }
 
     #[test]
@@ -483,7 +527,8 @@ mod test {
             Interval::new(0x1000, 0x4000, 0x0000),
             Interval::new(0x4000, 0x5000, u64::MAX),
         ]);
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(overlay.len(), 0x1000 * 3);
     }
 
     #[test]
@@ -514,6 +559,7 @@ mod test {
             Interval::new(0x8000, 0x9000, 0x3000),
             Interval::new(0x9000, 0xa000, u64::MAX),
         ]);
-        assert_eq!(itree.nodes, target_itree.nodes)
+        assert_eq!(itree.nodes, target_itree.nodes);
+        assert_eq!(overlay.len(), 0x1000 * 4);
     }
 }
