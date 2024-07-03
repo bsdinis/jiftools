@@ -8,8 +8,7 @@ impl ITreeNode {
     pub fn from_reader<R: Read>(r: &mut R, itree_node_idx: usize) -> JifResult<Self> {
         let mut ranges = [Interval::default(); IVAL_PER_NODE];
         for idx in 0..IVAL_PER_NODE {
-            ranges[idx] =
-                Interval::from_reader(r, itree_node_idx, idx).unwrap_or(Interval::default());
+            ranges[idx] = Interval::from_reader(r, itree_node_idx, idx)?;
         }
 
         Ok(ITreeNode::new(ranges))
@@ -54,16 +53,19 @@ impl Interval {
         let end = read_page_aligned_u64(r, &mut buffer, itree_node_idx, interval_idx)?;
         let offset = read_page_aligned_u64(r, &mut buffer, itree_node_idx, interval_idx)?;
 
-        if (start == u64::MAX || end == u64::MAX || offset == u64::MAX)
-            && (start != end || end != offset)
-        {
-            return Err(JifError::BadITreeNode {
-                itree_node_idx,
-                itree_node_err: ITreeNodeError {
-                    interval_idx,
-                    interval_err: IntervalError::InvalidInterval(start, end, offset),
-                },
-            });
+        if start == u64::MAX || end == u64::MAX {
+            if start == end && offset == u64::MAX {
+                // this is a default Interval
+                return Ok(Interval::default());
+            } else {
+                return Err(JifError::BadITreeNode {
+                    itree_node_idx,
+                    itree_node_err: ITreeNodeError {
+                        interval_idx,
+                        interval_err: IntervalError::InvalidInterval(start, end, offset),
+                    },
+                });
+            }
         }
 
         if start >= end {

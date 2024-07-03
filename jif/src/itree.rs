@@ -8,7 +8,7 @@ pub struct ITree {
     pub(crate) nodes: Vec<ITreeNode>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct ITreeNode {
     ranges: [Interval; IVAL_PER_NODE],
 }
@@ -33,14 +33,14 @@ impl ITreeNode {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Interval {
     pub(crate) start: u64,
     pub(crate) end: u64,
     pub(crate) offset: u64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiffState {
     Initial,
     AccumulatingData,
@@ -69,8 +69,8 @@ pub fn create_itree_from_diff(
     let mut state = DiffState::Initial;
     for (base_page, overlay_page) in base.chunks_exact(0x1000).zip(overlay.chunks_exact(0x1000)) {
         state = match (state, compare_pages(base_page, overlay_page)) {
-            (DiffState::Initial, PageCmp::Diff) => state,
-            (DiffState::Initial, PageCmp::Same) => {
+            (DiffState::Initial, PageCmp::Same) => state,
+            (DiffState::Initial, PageCmp::Diff) => {
                 interval.start = virtual_base + virtual_offset;
                 interval.offset = data_offset;
                 data_offset += overlay_page.len() as u64;
@@ -81,13 +81,13 @@ pub fn create_itree_from_diff(
                 interval.offset = u64::MAX;
                 DiffState::AccumulatingZero
             }
-            (DiffState::AccumulatingData, PageCmp::Diff) => {
+            (DiffState::AccumulatingData, PageCmp::Same) => {
                 interval.end = virtual_base + virtual_offset;
                 intervals.push(interval);
                 interval = Interval::new(0, 0, 0);
                 DiffState::Initial
             }
-            (DiffState::AccumulatingData, PageCmp::Same) => {
+            (DiffState::AccumulatingData, PageCmp::Diff) => {
                 data_offset += overlay_page.len() as u64;
                 state
             }
@@ -97,13 +97,13 @@ pub fn create_itree_from_diff(
                 interval = Interval::new(virtual_base + virtual_offset, 0, u64::MAX);
                 DiffState::AccumulatingZero
             }
-            (DiffState::AccumulatingZero, PageCmp::Diff) => {
+            (DiffState::AccumulatingZero, PageCmp::Same) => {
                 interval.end = virtual_base + virtual_offset;
                 intervals.push(interval);
                 interval = Interval::new(0, 0, 0);
                 DiffState::Initial
             }
-            (DiffState::AccumulatingZero, PageCmp::Same) => {
+            (DiffState::AccumulatingZero, PageCmp::Diff) => {
                 interval.end = virtual_base + virtual_offset;
                 intervals.push(interval);
                 interval = Interval::new(virtual_base + virtual_offset, 0, data_offset);
@@ -116,7 +116,52 @@ pub fn create_itree_from_diff(
         virtual_offset += base_page.len() as u64;
     }
 
-    assert!(overlay.len() > base.len()); // TODO: figure out what happens if overlay.len() > base.len()
+    if overlay.len() > base.len() {
+        for page in overlay
+            .chunks_exact(0x1000)
+            .skip(virtual_offset as usize / 0x1000)
+        {
+            state = match (state, is_zero(page)) {
+                (DiffState::Initial, false) => {
+                    interval.start = virtual_base + virtual_offset;
+                    interval.offset = data_offset;
+                    data_offset += page.len() as u64;
+                    DiffState::AccumulatingData
+                }
+                (DiffState::Initial, true) => {
+                    interval.start = virtual_base + virtual_offset;
+                    interval.offset = u64::MAX;
+                    DiffState::AccumulatingZero
+                }
+                (DiffState::AccumulatingData, false) => {
+                    data_offset += page.len() as u64;
+                    state
+                }
+                (DiffState::AccumulatingData, true) => {
+                    interval.end = virtual_base + virtual_offset;
+                    intervals.push(interval);
+                    interval = Interval::new(virtual_base + virtual_offset, 0, u64::MAX);
+                    DiffState::AccumulatingZero
+                }
+                (DiffState::AccumulatingZero, false) => {
+                    interval.end = virtual_base + virtual_offset;
+                    intervals.push(interval);
+                    interval = Interval::new(virtual_base + virtual_offset, 0, data_offset);
+                    data_offset += page.len() as u64;
+                    DiffState::AccumulatingData
+                }
+                (DiffState::AccumulatingZero, true) => state,
+            };
+
+            virtual_offset += page.len() as u64;
+        }
+    }
+
+    // last interval
+    if state != DiffState::Initial {
+        interval.end = virtual_base + virtual_offset;
+        intervals.push(interval);
+    }
 
     if let Some(Interval { end, .. }) = intervals.last() {
         overlay.drain((*end as usize - virtual_base as usize)..);
@@ -174,12 +219,18 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
                 intervals.push(interval);
                 interval = Interval::new(virtual_base + virtual_offset, 0, data_offset);
                 data_offset += page.len() as u64;
-                state
+                DiffState::AccumulatingData
             }
             (DiffState::AccumulatingZero, true) => state,
         };
 
         virtual_offset += page.len() as u64;
+    }
+
+    // last interval
+    if state != DiffState::Initial {
+        interval.end = virtual_base + virtual_offset;
+        intervals.push(interval);
     }
 
     if let Some(Interval { end, .. }) = intervals.last() {
@@ -321,5 +372,148 @@ impl std::fmt::Debug for Interval {
                 &self.start, &self.end, &self.offset
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    // test that it can create an interval tree no zero pages
+    fn create_zero_0() {
+        let mut data = vec![0xff; 0x1000 * 5];
+
+        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
+
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree all zero pages
+    fn create_zero_1() {
+        let mut data = vec![0x00; 0x1000 * 5];
+
+        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
+
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree with a trailing zero range
+    fn create_zero_2() {
+        let mut data = vec![0x00u8; 0x1000 * 5];
+        data[0x0000] = 0xff;
+        data[0x2000] = 0xff;
+
+        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![
+            Interval::new(0x0000, 0x1000, 0x0000),
+            Interval::new(0x1000, 0x2000, u64::MAX),
+            Interval::new(0x2000, 0x3000, 0x1000),
+            Interval::new(0x3000, 0x5000, u64::MAX),
+        ]);
+
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree with a trailing data range
+    fn create_zero_3() {
+        let mut data = vec![0x00u8; 0x1000 * 5];
+        data[0x0000] = 0xff;
+        data[0x3000] = 0xff;
+        data[0x4000] = 0xff;
+
+        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![
+            Interval::new(0x0000, 0x1000, 0x0000),
+            Interval::new(0x1000, 0x3000, u64::MAX),
+            Interval::new(0x3000, 0x5000, 0x1000),
+        ]);
+
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree when there is no difference
+    fn create_diff_0() {
+        let base = vec![0xffu8; 0x1000 * 5];
+        let mut overlay = vec![0xffu8; 0x1000 * 5];
+
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![]);
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree when there is no similarity
+    fn create_diff_1() {
+        let base = vec![0xffu8; 0x1000 * 5];
+        let mut overlay = vec![0x88u8; 0x1000 * 5];
+
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree when the overlay is zero
+    fn create_diff_2() {
+        let base = vec![0xffu8; 0x1000 * 5];
+        let mut overlay = vec![0x00u8; 0x1000 * 5];
+
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // test that it can create an interval tree when the overlay is bigger than the base
+    // include the fact that the overlay over-region may have zero pages
+    fn create_diff_3() {
+        let base = vec![0xffu8; 0x1000 * 1];
+        let mut overlay = vec![0xffu8; 0x1000 * 5];
+        overlay[0x4000..].fill(0x00);
+
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![
+            Interval::new(0x1000, 0x4000, 0x0000),
+            Interval::new(0x4000, 0x5000, u64::MAX),
+        ]);
+        assert_eq!(itree.nodes, target_itree.nodes)
+    }
+
+    #[test]
+    // complete test:
+    //  - include overlay over-extension with trailing zeroes
+    //  - include sparse pages
+    fn create_diff_4() {
+        let base = vec![0xffu8; 0x1000 * 6];
+        let mut overlay = vec![0x00u8; 0x1000 * 10];
+        overlay[0x0000..0x1000].fill(0xff); // same
+        overlay[0x1000..0x2000].fill(0x00); // zero
+        overlay[0x2000..0x3000].fill(0x00); // zero
+        overlay[0x3000..0x4000].fill(0xaa); // diff
+        overlay[0x4000..0x5000].fill(0xff); // same
+        overlay[0x5000..0x6000].fill(0xaa); // diff
+
+        overlay[0x6000..0x7000].fill(0xff); // non-zero
+        overlay[0x7000..0x8000].fill(0x00); // zero
+        overlay[0x8000..0x9000].fill(0xff); // non-zero
+        overlay[0x9000..0xa000].fill(0x00); // zero
+
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let target_itree = ITree::build(vec![
+            Interval::new(0x1000, 0x3000, u64::MAX),
+            Interval::new(0x3000, 0x4000, 0x0000),
+            Interval::new(0x5000, 0x7000, 0x1000),
+            Interval::new(0x7000, 0x8000, u64::MAX),
+            Interval::new(0x8000, 0x9000, 0x3000),
+            Interval::new(0x9000, 0xa000, u64::MAX),
+        ]);
+        assert_eq!(itree.nodes, target_itree.nodes)
     }
 }

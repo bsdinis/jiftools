@@ -117,7 +117,7 @@ impl JifPheader {
     }
 
     pub fn build_itree(&mut self) -> JifResult<()> {
-        if let Some((ref_path, ref_begin, ref_end)) = &self.ref_range {
+        let itree = if let Some((ref_path, ref_begin, ref_end)) = &self.ref_range {
             let len = ref_end - ref_begin;
 
             let mut file = {
@@ -132,17 +132,12 @@ impl JifPheader {
                 buf
             };
 
-            self.itree = Some(create_itree_from_diff(
-                &base,
-                &mut self.data_segment,
-                self.vaddr_range.0,
-            )?);
+            create_itree_from_diff(&base, &mut self.data_segment, self.vaddr_range.0)?
         } else {
-            self.itree = Some(create_itree_from_zero_page(
-                &mut self.data_segment,
-                self.vaddr_range.0,
-            )?);
-        }
+            create_itree_from_zero_page(&mut self.data_segment, self.vaddr_range.0)?
+        };
+
+        self.itree = (itree.n_nodes() > 0).then_some(itree);
 
         Ok(())
     }

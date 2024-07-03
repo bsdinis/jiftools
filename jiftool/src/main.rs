@@ -13,6 +13,9 @@ struct Cli {
     #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     output_file: std::path::PathBuf,
 
+    #[arg(long)]
+    show: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -26,6 +29,7 @@ enum Command {
         #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
         new_path: String,
     },
+    BuildItrees,
 }
 
 fn main() -> JifResult<()> {
@@ -37,11 +41,15 @@ fn main() -> JifResult<()> {
     match args.command {
         None => {}
         Some(Command::Rename { old_path, new_path }) => jif.rename_file(&old_path, &new_path),
+        Some(Command::BuildItrees) => jif.build_itrees()?,
     }
 
     let mut output_file = BufWriter::new(File::create(&args.output_file)?);
     let raw = JifRaw::from_materialized(jif);
-    eprintln!("{:#x?}", raw);
+
+    if args.show {
+        println!("{:#x?}", raw);
+    }
     raw.to_writer(&mut output_file)?;
     Ok(())
 }

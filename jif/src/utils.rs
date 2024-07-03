@@ -59,6 +59,7 @@ pub(crate) const fn page_align(val: u64) -> u64 {
     align::<0x1000>(val)
 }
 
+#[derive(Debug)]
 pub(crate) enum PageCmp {
     Same,
     Diff,

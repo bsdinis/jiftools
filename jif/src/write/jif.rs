@@ -53,7 +53,6 @@ impl JifRaw {
         let written = write_to_page_alignment(w, cursor, &zero_page)?;
         cursor += written;
 
-        eprintln!("writing strings at {:?}", cursor);
         // strings
         w.write_all(&self.strings_backing)?;
         cursor += self.strings_backing.len();
