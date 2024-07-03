@@ -9,9 +9,9 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 
 #[repr(u8)]
 pub enum Prot {
-    Read = 1u8 << 3,
-    Write = 1u8 << 2,
-    Exec = 1u8 << 1,
+    Read = 1u8 << 2,
+    Write = 1u8 << 1,
+    Exec = 1u8 << 0,
 }
 
 pub struct JifPheader {
