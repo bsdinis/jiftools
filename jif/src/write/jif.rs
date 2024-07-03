@@ -1,6 +1,6 @@
 use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
 use crate::ord::OrdChunk;
-use crate::utils::{is_page_aligned, page_align};
+use crate::utils::{is_page_aligned, page_align, PAGE_SIZE};
 use crate::{error::*, ITreeNode};
 
 use std::io::Write;
@@ -10,7 +10,7 @@ impl JifRaw {
         fn write_to_page_alignment<W: Write>(
             w: &mut W,
             cursor: usize,
-            buffer: &[u8; 0x1000],
+            buffer: &[u8; PAGE_SIZE],
         ) -> JifResult<usize> {
             let delta = page_align(cursor as u64) as usize - cursor;
             if delta > 0 {
@@ -20,8 +20,8 @@ impl JifRaw {
             Ok(delta)
         }
 
-        let zero_page = [0u8; 0x1000];
-        let ones_page = [0xffu8; 0x1000];
+        let zero_page = [0u8; PAGE_SIZE];
+        let ones_page = [0xffu8; PAGE_SIZE];
 
         let n_pheaders = self.pheaders.len() as u32;
         let strings_size = page_align(self.strings_backing.len() as u64) as u32;
@@ -89,7 +89,7 @@ impl JifRaw {
                 cursor += written;
             }
 
-            let n_pages = (self.data_offset as usize - cursor) / 0x1000;
+            let n_pages = (self.data_offset as usize - cursor) / PAGE_SIZE;
 
             for _ in 0..n_pages {
                 w.write_all(&zero_page)?;

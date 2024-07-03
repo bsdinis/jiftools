@@ -2,6 +2,8 @@ use crate::error::*;
 
 use std::io::{BufReader, Read, Seek};
 
+pub(crate) const PAGE_SIZE: usize = 0x1000;
+
 pub(crate) fn read_u8<R: Read>(r: &mut R, buffer: &mut [u8; 1]) -> JifResult<u8> {
     r.read_exact(buffer)?;
     Ok(buffer[0])
@@ -19,14 +21,14 @@ pub(crate) fn read_u64<R: Read>(r: &mut R, buffer: &mut [u8; 8]) -> JifResult<u6
 
 /// seek to the next aligned position
 /// return the new position
-pub(crate) fn seek_to_alignment<R: Read + Seek, const ALIGNMENT: u64>(
+pub(crate) fn seek_to_alignment<R: Read + Seek, const ALIGNMENT: usize>(
     r: &mut BufReader<R>,
 ) -> JifResult<u64> {
     let cur = r.stream_position()?;
-    let delta = cur % ALIGNMENT;
+    let delta = cur % ALIGNMENT as u64;
     if delta != 0 {
-        r.seek_relative((ALIGNMENT - delta) as i64)?;
-        Ok(cur + ALIGNMENT - delta)
+        r.seek_relative((ALIGNMENT as u64 - delta) as i64)?;
+        Ok(cur + ALIGNMENT as u64 - delta)
     } else {
         Ok(cur)
     }
@@ -35,28 +37,28 @@ pub(crate) fn seek_to_alignment<R: Read + Seek, const ALIGNMENT: u64>(
 /// seek to the next aligned page
 /// return the new position
 pub(crate) fn seek_to_page<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<u64> {
-    seek_to_alignment::<R, 0x1000>(r)
+    seek_to_alignment::<R, PAGE_SIZE>(r)
 }
 
-pub(crate) const fn is_aligned<const ALIGNMENT: u64>(v: u64) -> bool {
-    v % ALIGNMENT == 0
+pub(crate) const fn is_aligned<const ALIGNMENT: usize>(v: u64) -> bool {
+    v % ALIGNMENT as u64 == 0
 }
 
 pub(crate) const fn is_page_aligned(v: u64) -> bool {
-    is_aligned::<0x1000>(v)
+    is_aligned::<PAGE_SIZE>(v)
 }
 
-pub(crate) const fn align<const ALIGNMENT: u64>(val: u64) -> u64 {
-    let delta = val % ALIGNMENT;
+pub(crate) const fn align<const ALIGNMENT: usize>(val: u64) -> u64 {
+    let delta = val % ALIGNMENT as u64;
     if delta != 0 {
-        val + ALIGNMENT - delta
+        val + ALIGNMENT as u64 - delta
     } else {
         val
     }
 }
 
 pub(crate) const fn page_align(val: u64) -> u64 {
-    align::<0x1000>(val)
+    align::<PAGE_SIZE>(val)
 }
 
 #[derive(Debug)]
@@ -66,12 +68,12 @@ pub(crate) enum PageCmp {
     Zero,
 }
 
-// ASSUMPTION: page.len() == 0x1000
+// ASSUMPTION: page.len() == PAGE_SIZE
 pub(crate) fn is_zero(page: &[u8]) -> bool {
     page.iter().all(|x| *x == 0x00)
 }
 
-// ASSUMPTION: base.len() == overlay.len() == 0x1000
+// ASSUMPTION: base.len() == overlay.len() == PAGE_SIZE
 pub(crate) fn compare_pages(base: &[u8], overlay: &[u8]) -> PageCmp {
     if is_zero(overlay) {
         return PageCmp::Zero;

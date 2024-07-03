@@ -1,5 +1,5 @@
 use crate::error::*;
-use crate::utils::{compare_pages, is_page_aligned, is_zero, PageCmp};
+use crate::utils::{compare_pages, is_page_aligned, is_zero, PageCmp, PAGE_SIZE};
 
 pub(crate) const FANOUT: usize = 4;
 pub(crate) const IVAL_PER_NODE: usize = FANOUT - 1;
@@ -115,13 +115,16 @@ pub fn create_itree_from_diff(
     let mut intervals = Vec::new();
     let mut interval = Interval::new(0, 0, 0);
     let mut state = DiffState::Initial;
-    for (base_page, overlay_page) in base.chunks_exact(0x1000).zip(overlay.chunks_exact(0x1000)) {
+    for (base_page, overlay_page) in base
+        .chunks_exact(PAGE_SIZE)
+        .zip(overlay.chunks_exact(PAGE_SIZE))
+    {
         state = match (state, compare_pages(base_page, overlay_page)) {
             (DiffState::Initial, PageCmp::Same) => state,
             (DiffState::Initial, PageCmp::Diff) => {
                 interval.start = virtual_base + virtual_offset;
                 interval.offset = data_offset;
-                data_offset += overlay_page.len() as u64;
+                data_offset += PAGE_SIZE as u64;
                 DiffState::AccumulatingData
             }
             (DiffState::Initial, PageCmp::Zero) => {
@@ -136,7 +139,7 @@ pub fn create_itree_from_diff(
                 DiffState::Initial
             }
             (DiffState::AccumulatingData, PageCmp::Diff) => {
-                data_offset += overlay_page.len() as u64;
+                data_offset += PAGE_SIZE as u64;
                 state
             }
             (DiffState::AccumulatingData, PageCmp::Zero) => {
@@ -155,25 +158,25 @@ pub fn create_itree_from_diff(
                 interval.end = virtual_base + virtual_offset;
                 intervals.push(interval);
                 interval = Interval::new(virtual_base + virtual_offset, 0, data_offset);
-                data_offset += overlay_page.len() as u64;
+                data_offset += PAGE_SIZE as u64;
                 state
             }
             (DiffState::AccumulatingZero, PageCmp::Zero) => state,
         };
 
-        virtual_offset += base_page.len() as u64;
+        virtual_offset += PAGE_SIZE as u64;
     }
 
     if overlay.len() > base.len() {
         for page in overlay
-            .chunks_exact(0x1000)
-            .skip(virtual_offset as usize / 0x1000)
+            .chunks_exact(PAGE_SIZE)
+            .skip(virtual_offset as usize / PAGE_SIZE)
         {
             state = match (state, is_zero(page)) {
                 (DiffState::Initial, false) => {
                     interval.start = virtual_base + virtual_offset;
                     interval.offset = data_offset;
-                    data_offset += page.len() as u64;
+                    data_offset += PAGE_SIZE as u64;
                     DiffState::AccumulatingData
                 }
                 (DiffState::Initial, true) => {
@@ -182,7 +185,7 @@ pub fn create_itree_from_diff(
                     DiffState::AccumulatingZero
                 }
                 (DiffState::AccumulatingData, false) => {
-                    data_offset += page.len() as u64;
+                    data_offset += PAGE_SIZE as u64;
                     state
                 }
                 (DiffState::AccumulatingData, true) => {
@@ -195,13 +198,13 @@ pub fn create_itree_from_diff(
                     interval.end = virtual_base + virtual_offset;
                     intervals.push(interval);
                     interval = Interval::new(virtual_base + virtual_offset, 0, data_offset);
-                    data_offset += page.len() as u64;
+                    data_offset += PAGE_SIZE as u64;
                     DiffState::AccumulatingData
                 }
                 (DiffState::AccumulatingZero, true) => state,
             };
 
-            virtual_offset += page.len() as u64;
+            virtual_offset += PAGE_SIZE as u64;
         }
     }
 
@@ -240,12 +243,12 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
     let mut intervals = Vec::new();
     let mut interval = Interval::new(0, 0, 0);
     let mut state = DiffState::Initial;
-    for page in data.chunks_exact(0x1000) {
+    for page in data.chunks_exact(PAGE_SIZE) {
         state = match (state, is_zero(page)) {
             (DiffState::Initial, false) => {
                 interval.start = virtual_base + virtual_offset;
                 interval.offset = data_offset;
-                data_offset += page.len() as u64;
+                data_offset += PAGE_SIZE as u64;
                 DiffState::AccumulatingData
             }
             (DiffState::Initial, true) => {
@@ -254,7 +257,7 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
                 DiffState::AccumulatingZero
             }
             (DiffState::AccumulatingData, false) => {
-                data_offset += page.len() as u64;
+                data_offset += PAGE_SIZE as u64;
                 state
             }
             (DiffState::AccumulatingData, true) => {
@@ -267,13 +270,13 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
                 interval.end = virtual_base + virtual_offset;
                 intervals.push(interval);
                 interval = Interval::new(virtual_base + virtual_offset, 0, data_offset);
-                data_offset += page.len() as u64;
+                data_offset += PAGE_SIZE as u64;
                 DiffState::AccumulatingData
             }
             (DiffState::AccumulatingZero, true) => state,
         };
 
-        virtual_offset += page.len() as u64;
+        virtual_offset += PAGE_SIZE as u64;
     }
 
     // last interval
