@@ -12,12 +12,15 @@ ord.len                            number of ord chunks
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
 pheader.len                        number of pheaders
-pheader.data                       data range of the pheaders (mixable with range and other selectors)
-pheader.path                       reference pathname (mixable with range and other selectors)
+pheader.data_size                  size of the data region (mixable with range and other selectors)
+pheader.pathname                   reference pathname (mixable with range and other selectors)
 pheader.ref_range                  reference range in the path (mixable with range and other selectors)
+pheader.ref_size                   size of the reference range (mixable with range and other selectors)
 pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
+pheader.virtual_size               size of the virtual address range (mixable with range and other selectors)
 pheader.prot                       area `rwx` protections (mixable with range and other selectors)
 pheader.itree                      pheader interval tree (mixable with range and other selectors)
+pheader.n_itree_nodes              number of interval tree nodes in pheader (mixable with range and other selectors)
 ";
 
 #[derive(Debug)]
@@ -34,14 +37,17 @@ pub(crate) enum OrdCmd {
     Len,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct PheaderSelector {
-    pub(crate) data: bool,
+    pub(crate) virtual_range: bool,
+    pub(crate) virtual_size: bool,
+    pub(crate) data_size: bool,
     pub(crate) pathname: bool,
     pub(crate) ref_range: bool,
-    pub(crate) virtual_range: bool,
+    pub(crate) ref_size: bool,
     pub(crate) prot: bool,
     pub(crate) itree: bool,
+    pub(crate) n_itree_nodes: bool,
 }
 
 #[derive(Debug)]
@@ -72,10 +78,13 @@ ord.len                            number of ord chunks
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
 pheader.len                        number of pheaders
-pheader.data                       data range of the pheaders (mixable with range and other selectors)
+pheader.data_range                 data range of the pheaders (mixable with range and other selectors)
+pheader.data_size                  size of the data range (mixable with range and other selectors)
 pheader.pathname_offset            reference pathname (mixable with range and other selectors)
 pheader.ref_range                  reference range in the path (mixable with range and other selectors)
+pheader.ref_size                   size of the reference range (mixable with range and other selectors)
 pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
+pheader.virtual_size               size of the virtual address range (mixable with range and other selectors)
 pheader.prot                       area `rwx` protections (mixable with range and other selectors)
 pheader.itree                      show the interval tree offset and size in number of nodes (mixable with range and other selectors)
 ";
@@ -96,12 +105,15 @@ pub(crate) enum ITreeCmd {
     Len,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct RawPheaderSelector {
-    pub(crate) data: bool,
+    pub(crate) data_range: bool,
+    pub(crate) data_size: bool,
+    pub(crate) virtual_range: bool,
+    pub(crate) virtual_size: bool,
     pub(crate) pathname_offset: bool,
     pub(crate) ref_range: bool,
-    pub(crate) virtual_range: bool,
+    pub(crate) ref_size: bool,
     pub(crate) prot: bool,
     pub(crate) itree: bool,
 }
@@ -161,12 +173,15 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                     let options = [
                         "",               // 0
                         ".len",           // 1
-                        ".data",          // 2
-                        ".path",          // 3
-                        ".ref_range",     // 4
-                        ".virtual_range", // 5
-                        ".prot",          // 6
-                        ".itree",         // 7
+                        ".virtual_range", // 2
+                        ".virtual_size",  // 3
+                        ".data_size",     // 4
+                        ".pathname",      // 5
+                        ".ref_range",     // 6
+                        ".ref_size",      // 7
+                        ".prot",          // 8
+                        ".itree",         // 9
+                        ".n_itree_nodes", // 10
                     ];
                     let found_options = find_multiple_option(trimmed, suffix, &options)?;
 
@@ -181,32 +196,34 @@ impl TryFrom<Option<String>> for MaterializedCommand {
 
                         MaterializedCommand::Pheader(PheaderCmd::Len)
                     } else {
-                        let mut selector = PheaderSelector {
-                            data: false,
-                            pathname: false,
-                            ref_range: false,
-                            virtual_range: false,
-                            prot: false,
-                            itree: false,
-                        };
+                        let mut selector = PheaderSelector::default();
 
                         if found_options.contains(&2) {
-                            selector.data = true;
-                        }
-                        if found_options.contains(&3) {
-                            selector.pathname = true;
-                        }
-                        if found_options.contains(&4) {
-                            selector.ref_range = true;
-                        }
-                        if found_options.contains(&5) {
                             selector.virtual_range = true;
                         }
+                        if found_options.contains(&3) {
+                            selector.virtual_size = true;
+                        }
+                        if found_options.contains(&4) {
+                            selector.data_size = true;
+                        }
+                        if found_options.contains(&5) {
+                            selector.pathname = true;
+                        }
                         if found_options.contains(&6) {
-                            selector.prot = true;
+                            selector.ref_range = true;
                         }
                         if found_options.contains(&7) {
+                            selector.ref_size = true;
+                        }
+                        if found_options.contains(&8) {
+                            selector.prot = true;
+                        }
+                        if found_options.contains(&9) {
                             selector.itree = true;
+                        }
+                        if found_options.contains(&10) {
+                            selector.n_itree_nodes = true;
                         }
 
                         MaterializedCommand::Pheader(PheaderCmd::Selector { range, selector })
@@ -293,12 +310,15 @@ impl TryFrom<Option<String>> for RawCommand {
                     let options = [
                         "",                 // 0
                         ".len",             // 1
-                        ".data",            // 2
-                        ".pathname_offset", // 3
-                        ".ref_range",       // 4
-                        ".virtual_range",   // 5
-                        ".prot",            // 6
-                        ".itree",           // 7
+                        ".virtual_range",   // 2
+                        ".virtual_size",    // 3
+                        ".data_range",      // 4
+                        ".data_size",       // 5
+                        ".pathname_offset", // 6
+                        ".ref_range",       // 7
+                        ".ref_size",        // 8
+                        ".prot",            // 9
+                        ".itree",           // 10
                     ];
                     let found_options = find_multiple_option(trimmed, suffix, &options)?;
 
@@ -313,31 +333,33 @@ impl TryFrom<Option<String>> for RawCommand {
 
                         RawCommand::Pheader(RawPheaderCmd::Len)
                     } else {
-                        let mut selector = RawPheaderSelector {
-                            data: false,
-                            pathname_offset: false,
-                            ref_range: false,
-                            virtual_range: false,
-                            prot: false,
-                            itree: false,
-                        };
+                        let mut selector = RawPheaderSelector::default();
 
                         if found_options.contains(&2) {
-                            selector.data = true;
-                        }
-                        if found_options.contains(&3) {
-                            selector.pathname_offset = true;
-                        }
-                        if found_options.contains(&4) {
-                            selector.ref_range = true;
-                        }
-                        if found_options.contains(&5) {
                             selector.virtual_range = true;
                         }
+                        if found_options.contains(&3) {
+                            selector.virtual_size = true;
+                        }
+                        if found_options.contains(&4) {
+                            selector.data_range = true;
+                        }
+                        if found_options.contains(&5) {
+                            selector.data_size = true;
+                        }
                         if found_options.contains(&6) {
-                            selector.prot = true;
+                            selector.pathname_offset = true;
                         }
                         if found_options.contains(&7) {
+                            selector.ref_range = true;
+                        }
+                        if found_options.contains(&8) {
+                            selector.ref_size = true;
+                        }
+                        if found_options.contains(&9) {
+                            selector.prot = true;
+                        }
+                        if found_options.contains(&10) {
                             selector.itree = true;
                         }
 

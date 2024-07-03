@@ -123,9 +123,17 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                             let (start, end) = pheader.virtual_range();
                             print!("virtual_range: [{:#x}; {:#x}), ", start, end);
                         }
-                        if selector.data {
+                        if selector.virtual_size {
+                            let (start, end) = pheader.virtual_range();
+                            print!("virtual_size: {:#x} B, ", end - start);
+                        }
+                        if selector.data_range {
                             let (start, end) = pheader.data_range();
                             print!("data_range: [{:#x}; {:#x}), ", start, end);
+                        }
+                        if selector.data_size {
+                            let (start, end) = pheader.data_range();
+                            print!("data_size: {:#x} B, ", end - start);
                         }
                         if selector.pathname_offset {
                             if let Some(offset) = pheader.pathname_offset() {
@@ -137,9 +145,9 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                                 print!("ref_range: [{:#x}; {:#x}), ", start, end);
                             }
                         }
-                        if selector.itree {
-                            if let Some(it) = pheader.itree() {
-                                print!("itree: {:?}, ", it);
+                        if selector.ref_size {
+                            if let Some((start, end)) = pheader.ref_range() {
+                                print!("ref_size: {:#x} B, ", end - start);
                             }
                         }
                         if selector.prot {
@@ -162,6 +170,11 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                                     "-"
                                 },
                             )
+                        }
+                        if selector.itree {
+                            if let Some((idx, n_nodes)) = pheader.itree() {
+                                print!("itree: [{}; #{}), ", idx, n_nodes);
+                            }
                         }
                         println!("}}")
                     }
@@ -241,7 +254,11 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                             let (start, end) = pheader.virtual_range();
                             print!("virtual_range: [{:#x}; {:#x}), ", start, end);
                         }
-                        if selector.data {
+                        if selector.virtual_size {
+                            let (start, end) = pheader.virtual_range();
+                            print!("virtual_size: {:#x} B, ", end - start);
+                        }
+                        if selector.data_size {
                             print!("data: {:#x} B, ", pheader.data().len());
                         }
                         if selector.pathname {
@@ -254,9 +271,9 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                                 print!("ref_range: [{:#x}; {:#x}), ", start, end);
                             }
                         }
-                        if selector.itree {
-                            if let Some(it) = pheader.itree() {
-                                print!("itree: {:?}, ", it);
+                        if selector.ref_size {
+                            if let Some((start, end)) = pheader.ref_range() {
+                                print!("ref_size: {:#x} B, ", end - start);
                             }
                         }
                         if selector.prot {
@@ -279,6 +296,16 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                                     "-"
                                 },
                             )
+                        }
+                        if selector.itree {
+                            if let Some(it) = pheader.itree() {
+                                print!("itree: {:?}, ", it);
+                            }
+                        }
+                        if selector.n_itree_nodes {
+                            if let Some(it) = pheader.itree() {
+                                print!("n_itree_nodes: {:?}, ", it.n_nodes());
+                            }
                         }
                         println!("}}")
                     }
