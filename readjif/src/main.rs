@@ -31,7 +31,13 @@ pub(crate) enum Command {
 
 fn select_raw(jif: JifRaw, cmd: RawCommand) {
     match cmd {
-        RawCommand::Jif => println!("{:#x?}", jif),
+        RawCommand::Jif { data } => {
+            if data {
+                println!("data section: {:#x} B", jif.data().len())
+            } else {
+                println!("{:#x?}", jif)
+            }
+        }
         RawCommand::Strings => println!("{:#x?}", jif.strings()),
         RawCommand::Ord(o) => {
             let ords = jif.ord_chunks();

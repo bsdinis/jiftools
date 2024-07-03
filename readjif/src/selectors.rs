@@ -41,7 +41,7 @@ pub(crate) enum RawCommand {
     Pheader(RawPheaderCmd),
     Strings,
     ITree(ITreeCmd),
-    Jif,
+    Jif { data: bool },
 }
 
 #[derive(Debug)]
@@ -185,9 +185,10 @@ impl TryFrom<Option<Command>> for RawCommand {
                 if trimmed.starts_with("jif") {
                     let (_prefix, suffix) = trimmed.split_at("jif".len());
 
-                    let options = [""];
-                    let _idx = find_single_option(trimmed, suffix, &options)?;
-                    RawCommand::Jif
+                    let options = ["", ".data"];
+                    let idx = find_single_option(trimmed, suffix, &options)?;
+                    let data = options[idx] == ".data";
+                    RawCommand::Jif { data }
                 } else if trimmed.starts_with("strings") {
                     let (_prefix, suffix) = trimmed.split_at("strings".len());
 
@@ -301,7 +302,7 @@ impl TryFrom<Option<Command>> for RawCommand {
                     return Err(anyhow::anyhow!("unknown selector {}", trimmed));
                 }
             }
-            None => RawCommand::Jif,
+            None => RawCommand::Jif { data: false },
         })
     }
 }

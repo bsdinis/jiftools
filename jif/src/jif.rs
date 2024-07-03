@@ -201,6 +201,10 @@ impl JifRaw {
         &self.itree_nodes
     }
 
+    pub fn data(&self) -> &[u8] {
+        &self.data_segments
+    }
+
     pub fn strings(&self) -> Vec<&str> {
         let first_last_zero = self
             .strings_backing
