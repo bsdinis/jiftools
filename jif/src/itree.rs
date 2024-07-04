@@ -1,4 +1,3 @@
-use crate::error::*;
 use crate::utils::{compare_pages, is_page_aligned, is_zero, PageCmp, PAGE_SIZE};
 
 pub(crate) const FANOUT: usize = 4;
@@ -47,11 +46,7 @@ enum DiffState {
     AccumulatingZero,
 }
 
-pub fn create_itree_from_diff(
-    base: &[u8],
-    overlay: &mut Vec<u8>,
-    virtual_base: u64,
-) -> JifResult<ITree> {
+pub fn create_itree_from_diff(base: &[u8], overlay: &mut Vec<u8>, virtual_base: u64) -> ITree {
     fn remove_gaps(overlay: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
         // remove trailing empty space
         if let Some(Interval { start, end, offset }) = intervals.last() {
@@ -100,15 +95,15 @@ pub fn create_itree_from_diff(
             overlay.drain(..((*start - virtual_base) as usize));
         }
     }
-    if !is_page_aligned(overlay.len() as u64) {
-        return Err(JifError::ITreeError(ITreeError::OverlayAlignment(
-            overlay.len(),
-        )));
-    } else if !is_page_aligned(base.len() as u64) {
-        return Err(JifError::ITreeError(ITreeError::BaseAlignment(
-            overlay.len(),
-        )));
-    }
+
+    assert!(
+        is_page_aligned(overlay.len() as u64),
+        "the overlay should be page aligned because the data segment should be page aligned"
+    );
+    assert!(
+        is_page_aligned(base.len() as u64),
+        "the base should be page aligned because we extend it"
+    );
 
     let mut data_offset = 0;
     let mut virtual_offset = 0;
@@ -215,10 +210,10 @@ pub fn create_itree_from_diff(
     }
 
     remove_gaps(overlay, virtual_base, &intervals);
-    Ok(ITree::build(intervals))
+    ITree::build(intervals)
 }
 
-pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> JifResult<ITree> {
+pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> ITree {
     fn remove_gaps(data: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
         intervals
             .iter()
@@ -230,12 +225,10 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
                 data.drain(start..end);
             });
     }
-    if !is_page_aligned(data.len() as u64) {
-        return Err(JifError::ITreeError(ITreeError::OverlayAlignment(
-            data.len(),
-        )));
-    }
-
+    assert!(
+        is_page_aligned(data.len() as u64),
+        "data should be page aligned because data segments are page aligned"
+    );
     let mut data_offset = 0;
     let mut virtual_offset = 0;
     let mut intervals = Vec::new();
@@ -284,7 +277,7 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> Jif
     }
 
     remove_gaps(data, virtual_base, &intervals);
-    Ok(ITree::build(intervals))
+    ITree::build(intervals)
 }
 
 impl ITree {

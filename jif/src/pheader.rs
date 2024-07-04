@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::itree::{ITree, ITreeNode};
 use crate::jif::JifRaw;
+use crate::utils::page_align;
 use crate::{create_itree_from_diff, create_itree_from_zero_page, error::*};
 
 use std::fs::File;
@@ -129,12 +130,17 @@ impl JifPheader {
             let base = {
                 let mut buf = Vec::with_capacity(len as usize);
                 file.read_to_end(&mut buf)?;
+
+                let delta_to_page = page_align(buf.len() as u64) as usize - buf.len();
+                if delta_to_page > 0 {
+                    buf.extend(std::iter::repeat(0x00u8).take(delta_to_page));
+                }
                 buf
             };
 
-            create_itree_from_diff(&base, &mut self.data_segment, self.vaddr_range.0)?
+            create_itree_from_diff(&base, &mut self.data_segment, self.vaddr_range.0)
         } else {
-            create_itree_from_zero_page(&mut self.data_segment, self.vaddr_range.0)?
+            create_itree_from_zero_page(&mut self.data_segment, self.vaddr_range.0)
         };
 
         self.itree = (itree.n_nodes() > 0).then_some(itree);

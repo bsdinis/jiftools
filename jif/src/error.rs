@@ -1,5 +1,6 @@
 use crate::JIF_MAGIC_HEADER;
 
+pub type JifResult<T> = std::result::Result<T, JifError>;
 #[derive(Debug)]
 pub enum JifError {
     IoError(std::io::Error),
@@ -18,7 +19,6 @@ pub enum JifError {
         begin: u64,
         end: u64,
     },
-    ITreeError(ITreeError),
 }
 
 #[derive(Debug)]
@@ -54,12 +54,6 @@ pub enum IntervalError {
     InvalidInterval(u64, u64, u64),
 }
 
-#[derive(Debug)]
-pub enum ITreeError {
-    OverlayAlignment(usize),
-    BaseAlignment(usize),
-}
-
 impl std::fmt::Display for JifError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("jif error: ")?;
@@ -89,7 +83,6 @@ impl std::fmt::Display for JifError {
                 "could not find full data segment at [{:#x}; {:#x})",
                 begin, end
             )),
-            JifError::ITreeError(e) => f.write_fmt(format_args!("{}", e)),
         }
     }
 }
@@ -104,7 +97,6 @@ impl std::error::Error for JifError {
             JifError::BadPheader { pheader_err, .. } => Some(pheader_err),
             JifError::BadITreeNode { itree_node_err, .. } => Some(itree_node_err),
             JifError::DataSegmentNotFound { .. } => None,
-            JifError::ITreeError(e) => Some(e),
         }
     }
 }
@@ -193,26 +185,3 @@ impl std::error::Error for IntervalError {
         None
     }
 }
-
-impl std::fmt::Display for ITreeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ITreeError::BaseAlignment(v) => f.write_fmt(format_args!(
-                "expected base size to be page aligned: {:x}",
-                v
-            )),
-            ITreeError::OverlayAlignment(v) => f.write_fmt(format_args!(
-                "expected overlay size to be page aligned: {:x}",
-                v
-            )),
-        }
-    }
-}
-
-impl std::error::Error for ITreeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
-
-pub type JifResult<T> = std::result::Result<T, JifError>;
