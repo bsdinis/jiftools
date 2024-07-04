@@ -1,5 +1,6 @@
 use jif::*;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -32,24 +33,27 @@ enum Command {
     BuildItrees,
 }
 
-fn main() -> JifResult<()> {
+fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
-    let mut input_file = BufReader::new(File::open(&args.input_file)?);
+    let mut input_file =
+        BufReader::new(File::open(&args.input_file).context("failed to open input JIF")?);
 
     let mut jif = Jif::from_reader(&mut input_file)?;
 
     match args.command {
         None => {}
         Some(Command::Rename { old_path, new_path }) => jif.rename_file(&old_path, &new_path),
-        Some(Command::BuildItrees) => jif.build_itrees()?,
+        Some(Command::BuildItrees) => jif.build_itrees().context("failed to build ITrees")?,
     }
 
-    let mut output_file = BufWriter::new(File::create(&args.output_file)?);
+    let mut output_file =
+        BufWriter::new(File::create(&args.output_file).context("failed to open output JIF")?);
     let raw = JifRaw::from_materialized(jif);
 
     if args.show {
         println!("{:#x?}", raw);
     }
-    raw.to_writer(&mut output_file)?;
+    raw.to_writer(&mut output_file)
+        .context("failed to write JIF")?;
     Ok(())
 }
