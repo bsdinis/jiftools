@@ -24,7 +24,8 @@ pub enum JifError {
 #[derive(Debug)]
 pub enum PheaderError {
     BadAlignment(u64),
-    BadRange(u64, u64),
+    BadVirtualRange(u64, u64),
+    BadDataRange(u64, u64),
     BadRefRange {
         begin: u64,
         end: u64,
@@ -69,7 +70,7 @@ impl std::fmt::Display for JifError {
                 pheader_idx,
                 pheader_err,
             } => f.write_fmt(format_args!(
-                "bad pheader (idx = {}): {:?}",
+                "bad pheader (idx = {}): {}",
                 pheader_idx, pheader_err
             )),
             JifError::BadITreeNode {
@@ -113,15 +114,20 @@ impl std::fmt::Display for PheaderError {
             PheaderError::BadAlignment(v) => {
                 f.write_fmt(format_args!("expected to be page aligned: {:x}", v))
             }
-            PheaderError::BadRange(first, second) => {
-                f.write_fmt(format_args!("{:x} >= {:x}", first, second))
-            }
+            PheaderError::BadDataRange(first, second) => f.write_fmt(format_args!(
+                "invalid data range [{:#x}; {:#x}) [should be consistent and non-empty]",
+                first, second
+            )),
+            PheaderError::BadVirtualRange(first, second) => f.write_fmt(format_args!(
+                "invalid virtual range [{:#x}; {:#x}) [should be valid and non-empty]",
+                first, second
+            )),
             PheaderError::BadRefRange {
                 begin,
                 end,
                 pathname_offset,
             } => f.write_fmt(format_args!(
-                "range [{:#x}; {:#x}) and pathname offset {:#x} are not equally valid",
+                "invalid ref range [{:#x}; {:#x}) [should be consistent with pathname offset {:#x}]",
                 begin, end, pathname_offset
             )),
             PheaderError::InvalidOffset { offset, size } => f.write_fmt(format_args!(
