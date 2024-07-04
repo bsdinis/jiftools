@@ -220,8 +220,6 @@ pub fn create_itree_from_diff(
 
 pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> JifResult<ITree> {
     fn remove_gaps(data: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
-        dbg!(intervals);
-
         intervals
             .iter()
             .rev()
