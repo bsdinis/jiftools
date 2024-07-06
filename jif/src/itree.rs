@@ -50,8 +50,15 @@ impl ITreeNode {
     pub(crate) fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         self.ranges()
             .iter()
-            .filter(|i| !i.is_empty() && i.start >= start && i.end <= end)
-            .map(|i| (i.end - i.start) as usize)
+            .filter(|i| !i.is_empty() && (start <= i.start || dbg!(i.end) <= end))
+            .map(|i| {
+                (
+                    std::cmp::max(dbg!(i.start), start),
+                    std::cmp::min(dbg!(i.end), end),
+                )
+            })
+            .filter(|(st, en)| st < en)
+            .map(|(st, en)| (dbg!(en) - dbg!(st)) as usize)
             .sum()
     }
 }
@@ -463,6 +470,9 @@ mod test {
 
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(data.len(), 0x1000 * 5);
+        assert_eq!(itree.zero_byte_size(), 0);
+        assert_eq!(itree.private_data_size(), 0x1000 * 5);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0x1000 * 3);
     }
 
     #[test]
@@ -475,6 +485,9 @@ mod test {
 
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(data.len(), 0x1000 * 0);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 5);
+        assert_eq!(itree.private_data_size(), 0);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0x1000 * 3);
     }
 
     #[test]
@@ -494,6 +507,9 @@ mod test {
 
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(data.len(), 0x1000 * 2);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 3);
+        assert_eq!(itree.private_data_size(), 0x1000 * 2);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 4);
     }
 
     #[test]
@@ -513,6 +529,9 @@ mod test {
 
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(data.len(), 0x1000 * 3);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 2);
+        assert_eq!(itree.private_data_size(), 0x1000 * 3);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 4);
     }
 
     #[test]
@@ -525,6 +544,10 @@ mod test {
         let target_itree = ITree::build(vec![]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 0);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 0);
+        assert_eq!(itree.private_data_size(), 0x1000 * 0);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
     }
 
     #[test]
@@ -537,6 +560,10 @@ mod test {
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 5);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 0);
+        assert_eq!(itree.private_data_size(), 0x1000 * 5);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
     }
 
     #[test]
@@ -549,6 +576,10 @@ mod test {
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 0);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 5);
+        assert_eq!(itree.private_data_size(), 0x1000 * 0);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
     }
 
     #[test]
@@ -566,6 +597,10 @@ mod test {
         ]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 3);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 1);
+        assert_eq!(itree.private_data_size(), 0x1000 * 3);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 4);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 1);
     }
 
     #[test]
@@ -598,5 +633,11 @@ mod test {
         ]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 4);
+        assert_eq!(itree.zero_byte_size(), 0x1000 * 4);
+        assert_eq!(itree.private_data_size(), 0x1000 * 4);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 3);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 2);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0xa000), 0x1000 * 8);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0xa000), 0x1000 * 2);
     }
 }
