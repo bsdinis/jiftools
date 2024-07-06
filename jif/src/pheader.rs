@@ -48,53 +48,51 @@ impl JifPheader {
     pub(crate) fn from_raw(
         jif: &JifRaw,
         raw: &JifRawPheader,
-        data_segments: &mut BTreeMap<u64, Vec<u8>>,
+        data_segments: &mut Vec<u8>,
     ) -> JifResult<Self> {
         fn extract_data_segment(
-            data_segments: &mut BTreeMap<u64, Vec<u8>>,
+            data_segments: &mut Vec<u8>,
+            data_offset: u64,
             begin: u64,
             end: u64,
         ) -> Option<Vec<u8>> {
-            let key = data_segments
-                .iter()
-                .find(|(addr, data)| {
-                    **addr <= begin && end as usize <= **addr as usize + data.len()
-                })
-                .map(|(addr, _)| addr)
-                .copied();
-
-            if let Some(addr) = key {
-                let mut data = data_segments.remove(&addr).expect("we just found this key");
-                let offset = begin - addr;
-
-                // cut off region before `begin`
-                let mut segment = if offset == 0 {
-                    data
-                } else {
-                    let segment = data.split_off(offset as usize);
-                    data_segments.insert(addr, data);
-                    segment
-                };
-
-                // cut off region after end
-                let len = end - begin;
-                if segment.len() > len as usize {
-                    let leftover = segment.split_off(len as usize);
-                    data_segments.insert(end, leftover);
-                }
-
-                Some(segment)
-            } else {
-                None
+            if begin == end {
+                return Some(Vec::new());
+            } else if begin < data_offset {
+                return None;
             }
+
+            let offset = begin - data_offset;
+            let len = (end - begin) as usize;
+
+            if (offset as usize) >= data_segments.len() {
+                return None;
+            }
+
+            let data = data_segments.split_off(offset as usize);
+            if data.len() < len {
+                return None;
+            }
+
+            if data.len() > len {
+                eprintln!(
+                    "warning: data range [{:#x}; {:#x}) had {} extra bytes",
+                    begin,
+                    end,
+                    data.len() - len
+                );
+            }
+
+            Some(data)
         }
 
         let vaddr_range = (raw.vbegin, raw.vend);
-        let data_segment = extract_data_segment(data_segments, raw.data_begin, raw.data_end)
-            .ok_or(JifError::DataSegmentNotFound {
-                data_range: raw.data_range(),
-                virtual_range: vaddr_range,
-            })?;
+        let data_segment =
+            extract_data_segment(data_segments, jif.data_offset, raw.data_begin, raw.data_end)
+                .ok_or(JifError::DataSegmentNotFound {
+                    data_range: (raw.data_begin, raw.data_end),
+                    virtual_range: vaddr_range,
+                })?;
 
         let ref_range = jif
             .string_at_offset(raw.pathname_offset as usize)

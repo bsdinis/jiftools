@@ -28,8 +28,10 @@ pub struct JifRaw {
 
 impl Jif {
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
-        let mut data_segments = BTreeMap::new();
-        data_segments.insert(raw.data_offset, raw.take_data());
+        // sort by reverse order of data_begin
+        raw.pheaders.sort_by(|a, b| b.data_begin.cmp(&a.data_begin));
+
+        let mut data_segments = raw.take_data();
         let pheaders = raw
             .pheaders
             .iter()
