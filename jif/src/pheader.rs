@@ -92,8 +92,8 @@ impl JifPheader {
         let vaddr_range = (raw.vbegin, raw.vend);
         let data_segment = extract_data_segment(data_segments, raw.data_begin, raw.data_end)
             .ok_or(JifError::DataSegmentNotFound {
-                begin: raw.data_begin,
-                end: raw.data_end,
+                data_range: raw.data_range(),
+                virtual_range: vaddr_range,
             })?;
 
         let ref_range = jif
