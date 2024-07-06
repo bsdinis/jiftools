@@ -174,6 +174,25 @@ impl JifPheader {
     pub fn prot(&self) -> u8 {
         self.prot
     }
+    pub fn zero_byte_size(&self) -> usize {
+        self.itree.as_ref().map(|i| i.zero_byte_size()).unwrap_or(0)
+    }
+    pub fn private_data_size(&self) -> usize {
+        self.itree
+            .as_ref()
+            .map(|i| i.private_data_size())
+            .unwrap_or(0)
+    }
+    pub fn ref_data_size(&self) -> usize {
+        self.ref_range()
+            .map(|(start, end)| {
+                self.itree
+                    .as_ref()
+                    .map(|i| i.not_mapped_subregion_size(start, end))
+                    .unwrap_or((end - start) as usize)
+            })
+            .unwrap_or(0)
+    }
 }
 
 impl JifRawPheader {

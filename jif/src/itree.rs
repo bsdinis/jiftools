@@ -30,6 +30,30 @@ impl ITreeNode {
             interval.shift_offset(new_base);
         }
     }
+
+    pub(crate) fn zero_byte_size(&self) -> usize {
+        self.ranges()
+            .iter()
+            .filter(|i| !i.is_empty() && i.offset == u64::MAX)
+            .map(|i| (i.end - i.start) as usize)
+            .sum()
+    }
+
+    pub(crate) fn private_data_size(&self) -> usize {
+        self.ranges()
+            .iter()
+            .filter(|i| !i.is_empty() && i.offset != u64::MAX)
+            .map(|i| (i.end - i.start) as usize)
+            .sum()
+    }
+
+    pub(crate) fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
+        self.ranges()
+            .iter()
+            .filter(|i| !i.is_empty() && i.start >= start && i.end <= end)
+            .map(|i| (i.end - i.start) as usize)
+            .sum()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -342,6 +366,25 @@ impl ITree {
     pub fn n_nodes(&self) -> usize {
         self.nodes.len()
     }
+
+    pub fn zero_byte_size(&self) -> usize {
+        self.nodes.iter().map(ITreeNode::zero_byte_size).sum()
+    }
+
+    pub fn private_data_size(&self) -> usize {
+        self.nodes.iter().map(ITreeNode::private_data_size).sum()
+    }
+
+    pub fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
+        self.nodes
+            .iter()
+            .map(|n| n.mapped_subregion_size(start, end))
+            .sum()
+    }
+
+    pub fn not_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
+        (end - start) as usize - self.mapped_subregion_size(start, end)
+    }
 }
 
 impl Interval {
@@ -415,7 +458,7 @@ mod test {
     fn create_zero_0() {
         let mut data = vec![0xff; 0x1000 * 5];
 
-        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let itree = create_itree_from_zero_page(&mut data, 0x0000);
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
 
         assert_eq!(itree.nodes, target_itree.nodes);
@@ -427,7 +470,7 @@ mod test {
     fn create_zero_1() {
         let mut data = vec![0x00; 0x1000 * 5];
 
-        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let itree = create_itree_from_zero_page(&mut data, 0x0000);
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
 
         assert_eq!(itree.nodes, target_itree.nodes);
@@ -441,7 +484,7 @@ mod test {
         data[0x0000] = 0xff;
         data[0x2000] = 0xff;
 
-        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let itree = create_itree_from_zero_page(&mut data, 0x0000);
         let target_itree = ITree::build(vec![
             Interval::new(0x0000, 0x1000, 0x0000),
             Interval::new(0x1000, 0x2000, u64::MAX),
@@ -461,7 +504,7 @@ mod test {
         data[0x3000] = 0xff;
         data[0x4000] = 0xff;
 
-        let itree = create_itree_from_zero_page(&mut data, 0x0000).unwrap();
+        let itree = create_itree_from_zero_page(&mut data, 0x0000);
         let target_itree = ITree::build(vec![
             Interval::new(0x0000, 0x1000, 0x0000),
             Interval::new(0x1000, 0x3000, u64::MAX),
@@ -478,7 +521,7 @@ mod test {
         let base = vec![0xffu8; 0x1000 * 5];
         let mut overlay = vec![0xffu8; 0x1000 * 5];
 
-        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000);
         let target_itree = ITree::build(vec![]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 0);
@@ -490,7 +533,7 @@ mod test {
         let base = vec![0xffu8; 0x1000 * 5];
         let mut overlay = vec![0x88u8; 0x1000 * 5];
 
-        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000);
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, 0x0000)]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 5);
@@ -502,7 +545,7 @@ mod test {
         let base = vec![0xffu8; 0x1000 * 5];
         let mut overlay = vec![0x00u8; 0x1000 * 5];
 
-        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000);
         let target_itree = ITree::build(vec![Interval::new(0x0000, 0x5000, u64::MAX)]);
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(overlay.len(), 0x1000 * 0);
@@ -516,7 +559,7 @@ mod test {
         let mut overlay = vec![0xffu8; 0x1000 * 5];
         overlay[0x4000..].fill(0x00);
 
-        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000);
         let target_itree = ITree::build(vec![
             Interval::new(0x1000, 0x4000, 0x0000),
             Interval::new(0x4000, 0x5000, u64::MAX),
@@ -544,7 +587,7 @@ mod test {
         overlay[0x8000..0x9000].fill(0xff); // non-zero
         overlay[0x9000..0xa000].fill(0x00); // zero
 
-        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000).unwrap();
+        let itree = create_itree_from_diff(&base, &mut overlay, 0x0000);
         let target_itree = ITree::build(vec![
             Interval::new(0x1000, 0x3000, u64::MAX),
             Interval::new(0x3000, 0x4000, 0x0000),
