@@ -25,14 +25,15 @@ struct Cli {
 
 fn select_raw(jif: JifRaw, cmd: RawCommand) {
     match cmd {
-        RawCommand::Jif { data } => {
-            if data {
-                println!("data section: {:#x} B", jif.data().len())
-            } else {
-                println!("{:#x?}", jif)
+        RawCommand::Jif(j) => match j {
+            RawJifCmd::All => println!("{:#x?}", jif),
+            RawJifCmd::Data => println!("data section: {:#x} B", jif.data().len()),
+        },
+        RawCommand::Strings => {
+            for s in jif.strings().iter() {
+                println!("{}", s);
             }
         }
-        RawCommand::Strings => println!("{:#x?}", jif.strings()),
         RawCommand::Ord(o) => {
             let ords = jif.ord_chunks();
             match o {
@@ -118,7 +119,7 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
 
                     println!("[");
                     for pheader in ranged_pheaders {
-                        print!("phrd {{ ");
+                        print!("phdr {{ ");
                         if selector.virtual_range {
                             let (start, end) = pheader.virtual_range();
                             print!("virtual_range: [{:#x}; {:#x}), ", start, end);
@@ -187,13 +188,30 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
 
 fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
     match cmd {
-        MaterializedCommand::Jif { strings } => {
-            if strings {
-                println!("{:#x?}", jif.strings())
-            } else {
-                println!("{:#x?}", jif)
+        MaterializedCommand::Jif(j) => match j {
+            JifCmd::All => println!("{:#x?}", jif),
+            JifCmd::Strings => {
+                for s in jif.strings().iter() {
+                    println!("{}", s);
+                }
             }
-        }
+            JifCmd::Pages(p) => {
+                print!("{{ ");
+                if p.zero {
+                    print!("zero_pages: {}, ", jif.zero_pages())
+                }
+                if p.private {
+                    print!("private_pages: {}, ", jif.private_pages())
+                }
+                if p.shared {
+                    print!("shared_pages: {}, ", jif.shared_pages())
+                }
+                if p.total {
+                    print!("total_pages: {}, ", jif.total_pages())
+                }
+                println!("}}");
+            }
+        },
         MaterializedCommand::Ord(o) => {
             let ords = jif.ord_chunks();
             match o {
@@ -249,7 +267,7 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
 
                     println!("[");
                     for pheader in ranged_pheaders {
-                        print!("phrd {{ ");
+                        print!("phdr {{ ");
                         if selector.virtual_range {
                             let (start, end) = pheader.virtual_range();
                             print!("virtual_range: [{:#x}; {:#x}), ", start, end);
@@ -306,6 +324,18 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                             if let Some(it) = pheader.itree() {
                                 print!("n_itree_nodes: {:?}, ", it.n_nodes());
                             }
+                        }
+                        if selector.zero_pages {
+                            print!("zero_pages: {}, ", pheader.zero_pages())
+                        }
+                        if selector.private_pages {
+                            print!("private_pages: {}, ", pheader.private_pages())
+                        }
+                        if selector.shared_pages {
+                            print!("shared_pages: {}, ", pheader.shared_pages())
+                        }
+                        if selector.pages {
+                            print!("total_pages: {}, ", pheader.total_pages())
                         }
                         println!("}}")
                     }

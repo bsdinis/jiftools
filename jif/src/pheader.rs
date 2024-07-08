@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::itree::{ITree, ITreeNode};
 use crate::jif::JifRaw;
-use crate::utils::page_align;
+use crate::utils::{page_align, PAGE_SIZE};
 use crate::{create_itree_from_diff, create_itree_from_zero_page, error::*};
 
 use std::fs::File;
@@ -174,24 +174,41 @@ impl JifPheader {
     pub fn prot(&self) -> u8 {
         self.prot
     }
-    pub fn zero_byte_size(&self) -> usize {
-        self.itree.as_ref().map(|i| i.zero_byte_size()).unwrap_or(0)
+    pub fn zero_pages(&self) -> usize {
+        self.itree.as_ref().map(|i| i.zero_byte_size()).unwrap_or(0) / PAGE_SIZE
     }
-    pub fn private_data_size(&self) -> usize {
+    pub fn private_pages(&self) -> usize {
         self.itree
             .as_ref()
             .map(|i| i.private_data_size())
             .unwrap_or(0)
+            / PAGE_SIZE
     }
-    pub fn ref_data_size(&self) -> usize {
+    pub fn shared_pages(&self) -> usize {
         self.ref_range()
             .map(|(start, end)| {
+                let shared_len = end - start;
                 self.itree
                     .as_ref()
-                    .map(|i| i.not_mapped_subregion_size(start, end))
-                    .unwrap_or((end - start) as usize)
+                    .map(|i| {
+                        i.not_mapped_subregion_size(
+                            self.vaddr_range.0,
+                            self.vaddr_range.0 + shared_len,
+                        )
+                    })
+                    .unwrap_or(shared_len as usize)
             })
             .unwrap_or(0)
+            / PAGE_SIZE
+    }
+    pub fn total_pages(&self) -> usize {
+        let (begin, end) = self.virtual_range();
+
+        debug_assert_eq!(
+            (end as usize - begin as usize) / PAGE_SIZE,
+            self.zero_pages() + self.private_pages() + self.shared_pages()
+        );
+        (end as usize - begin as usize) / PAGE_SIZE
     }
 }
 

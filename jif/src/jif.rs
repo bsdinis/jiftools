@@ -111,6 +111,22 @@ impl Jif {
     pub fn ord_chunks(&self) -> &[OrdChunk] {
         &self.ord_chunks
     }
+
+    pub fn zero_pages(&self) -> usize {
+        self.pheaders.iter().map(|phdr| phdr.zero_pages()).sum()
+    }
+
+    pub fn private_pages(&self) -> usize {
+        self.pheaders.iter().map(|phdr| phdr.private_pages()).sum()
+    }
+
+    pub fn shared_pages(&self) -> usize {
+        self.pheaders.iter().map(|phdr| phdr.shared_pages()).sum()
+    }
+
+    pub fn total_pages(&self) -> usize {
+        self.pheaders.iter().map(|phdr| phdr.total_pages()).sum()
+    }
 }
 
 impl JifRaw {

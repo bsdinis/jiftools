@@ -50,15 +50,10 @@ impl ITreeNode {
     pub(crate) fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         self.ranges()
             .iter()
-            .filter(|i| !i.is_empty() && (start <= i.start || dbg!(i.end) <= end))
-            .map(|i| {
-                (
-                    std::cmp::max(dbg!(i.start), start),
-                    std::cmp::min(dbg!(i.end), end),
-                )
-            })
+            .filter(|i| !i.is_empty() && (start <= i.start || i.end <= end))
+            .map(|i| (std::cmp::max(i.start, start), std::cmp::min(i.end, end)))
             .filter(|(st, en)| st < en)
-            .map(|(st, en)| (dbg!(en) - dbg!(st)) as usize)
+            .map(|(st, en)| (en - st) as usize)
             .sum()
     }
 }
