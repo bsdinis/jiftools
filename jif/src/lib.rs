@@ -10,4 +10,5 @@ mod write;
 pub use error::*;
 pub use itree::*;
 pub use jif::*;
+pub use ord::*;
 pub use pheader::*;

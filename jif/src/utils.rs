@@ -61,6 +61,19 @@ pub(crate) const fn page_align(val: u64) -> u64 {
     align::<PAGE_SIZE>(val)
 }
 
+pub(crate) const fn align_down<const ALIGNMENT: usize>(val: u64) -> u64 {
+    let delta = val % ALIGNMENT as u64;
+    if delta != 0 {
+        val - delta
+    } else {
+        val
+    }
+}
+
+pub(crate) const fn page_align_down(val: u64) -> u64 {
+    align_down::<PAGE_SIZE>(val)
+}
+
 #[derive(Debug)]
 pub(crate) enum PageCmp {
     Same,

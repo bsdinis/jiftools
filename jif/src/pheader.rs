@@ -153,6 +153,9 @@ impl JifPheader {
             }
         }
     }
+    pub(crate) fn mapps_addr(&self, addr: u64) -> bool {
+        self.vaddr_range.0 <= addr && addr < self.vaddr_range.1
+    }
 
     pub fn virtual_range(&self) -> (u64, u64) {
         self.vaddr_range

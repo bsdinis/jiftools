@@ -9,6 +9,6 @@ impl OrdChunk {
         let vaddr_and_n_pages = read_u64(r, &mut buffer)?;
         let vaddr = vaddr_and_n_pages & !0xfff;
         let n_pages = vaddr_and_n_pages as u16 & 0xfff;
-        Ok(OrdChunk::new(vaddr, n_pages))
+        Ok(OrdChunk { vaddr, n_pages })
     }
 }

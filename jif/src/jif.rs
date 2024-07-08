@@ -104,6 +104,26 @@ impl Jif {
         }
     }
 
+    pub fn add_ordering_info(&mut self, ordering_info: Vec<OrdChunk>) -> JifResult<()> {
+        fn check_and_process(jif: &Jif, ordering_info: Vec<OrdChunk>) -> JifResult<Vec<OrdChunk>> {
+            ordering_info
+                .into_iter()
+                .filter_map(|chunk| {
+                    if chunk.is_empty() {
+                        None
+                    } else if jif.mapping_pheader_idx(chunk.vaddr).is_none() {
+                        Some(Err(JifError::UnmappedOrderingAddr(chunk.vaddr)))
+                    } else {
+                        Some(Ok(chunk))
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()
+        }
+
+        self.ord_chunks = check_and_process(self, ordering_info)?;
+        Ok(())
+    }
+
     pub fn pheaders(&self) -> &[JifPheader] {
         &self.pheaders
     }
@@ -126,6 +146,15 @@ impl Jif {
 
     pub fn total_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.total_pages()).sum()
+    }
+
+    // for a particular address find the pheader (by index) which maps it
+    pub(crate) fn mapping_pheader_idx(&self, vaddr: u64) -> Option<usize> {
+        self.pheaders
+            .iter()
+            .enumerate()
+            .find(|(_idx, pheader)| pheader.mapps_addr(vaddr))
+            .map(|(idx, _pheader)| idx)
     }
 }
 
