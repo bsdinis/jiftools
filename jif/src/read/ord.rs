@@ -4,7 +4,8 @@ use crate::utils::read_u64;
 use std::io::Read;
 
 impl OrdChunk {
-    pub(crate) fn from_reader<R: Read>(r: &mut R) -> JifResult<Self> {
+    /// Read and parse an OrdChunk
+    pub fn from_reader<R: Read>(r: &mut R) -> JifResult<Self> {
         let mut buffer = [0u8; 8];
         let vaddr_and_n_pages = read_u64(r, &mut buffer)?;
         let vaddr = vaddr_and_n_pages & !0xfff;

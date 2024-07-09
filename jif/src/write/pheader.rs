@@ -4,6 +4,7 @@ use crate::pheader::JifRawPheader;
 use std::io::Write;
 
 impl JifRawPheader {
+    /// Write a pheader
     pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
         w.write_all(&self.vbegin.to_le_bytes())?;
         w.write_all(&self.vend.to_le_bytes())?;

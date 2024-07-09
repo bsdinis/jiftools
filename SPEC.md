@@ -1,0 +1,1 @@
+# Junction Image Format Specification

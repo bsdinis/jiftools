@@ -109,6 +109,7 @@ fn read_ref_range<R: Read>(
 }
 
 impl JifRawPheader {
+    /// Read and parse a pheader
     pub fn from_reader<R: Read>(r: &mut R, pheader_idx: usize) -> JifResult<Self> {
         let mut buffer_8 = [0u8; 8];
         let (vbegin, vend) = read_virtual_range(r, &mut buffer_8, pheader_idx)?;

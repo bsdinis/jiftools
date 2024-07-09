@@ -8,6 +8,7 @@ use crate::{create_itree_from_diff, create_itree_from_zero_page, error::*};
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
+/// VMA protection bits
 #[repr(u8)]
 pub enum Prot {
     Read = 1u8 << 2,
@@ -15,6 +16,15 @@ pub enum Prot {
     Exec = 1u8 << 0,
 }
 
+/// A materialized JIF pheader
+///
+/// Contains all the information regarding its VMA:
+///  - the address range
+///  - an associated data segment and optional reference segment
+///  - an interval tree
+///  - protections
+///
+/// Can be used to visualize the VMA and manipulate it (e.g., construct an interal tree)
 pub struct JifPheader {
     pub(crate) vaddr_range: (u64, u64),
     pub(crate) data_segment: Vec<u8>,
@@ -26,6 +36,10 @@ pub struct JifPheader {
     pub(crate) prot: u8,
 }
 
+/// The "raw" JIF pheader
+///
+/// This type encodes 1:1 the information as it is serialized in the JIF format
+/// It can be used to construct materialized pheaders with the help of the raw `JifRaw` type.
 pub struct JifRawPheader {
     pub(crate) vbegin: u64,
     pub(crate) vend: u64,
@@ -45,6 +59,7 @@ pub struct JifRawPheader {
 }
 
 impl JifPheader {
+    /// Construct a materialized JIF pheader from its raw counterpart
     pub(crate) fn from_raw(
         jif: &JifRaw,
         raw: &JifRawPheader,
@@ -115,6 +130,7 @@ impl JifPheader {
         })
     }
 
+    /// Build an itree for a particular pheader
     pub fn build_itree(&mut self) -> JifResult<()> {
         let itree = if let Some((ref_path, ref_begin, ref_end)) = &self.ref_range {
             let len = ref_end - ref_begin;
@@ -146,6 +162,7 @@ impl JifPheader {
         Ok(())
     }
 
+    /// Rename the file in this pheader if 1) it has a file and 2) it matches the name
     pub fn rename_file(&mut self, old: &str, new: &str) {
         if let Some((ref mut path, _, _)) = self.ref_range {
             if path == old {
@@ -153,40 +170,64 @@ impl JifPheader {
             }
         }
     }
+
+    /// Check whether this pheader maps a particular address
     pub(crate) fn mapps_addr(&self, addr: u64) -> bool {
         self.vaddr_range.0 <= addr && addr < self.vaddr_range.1
     }
 
+    /// The virtual address space range that this pheader maps
     pub fn virtual_range(&self) -> (u64, u64) {
         self.vaddr_range
     }
+
+    /// The data stored in the associated data segment
     pub fn data(&self) -> &[u8] {
         &self.data_segment
     }
+
+    /// The pathname of the reference section
     pub fn pathname(&self) -> Option<&str> {
         self.ref_range.as_ref().map(|(s, _, _)| s.as_str())
     }
+
+    /// The offset range into the referenced file which is used to map the file data into this vma
     pub fn ref_range(&self) -> Option<(u64, u64)> {
         self.ref_range
             .as_ref()
             .map(|(_, begin, end)| (*begin, *end))
     }
+
+    /// The interval tree which encodes the data source of each page
     pub fn itree(&self) -> Option<&ITree> {
         self.itree.as_ref()
     }
+
+    /// The protections concerning this vma
     pub fn prot(&self) -> u8 {
         self.prot
     }
+
+    /// Number of zero pages encoded (by ommission) in this pheader
     pub fn zero_pages(&self) -> usize {
         self.itree.as_ref().map(|i| i.zero_byte_size()).unwrap_or(0) / PAGE_SIZE
     }
+
+    /// Number of private data pages in this pheader
     pub fn private_pages(&self) -> usize {
-        self.itree
-            .as_ref()
-            .map(|i| i.private_data_size())
-            .unwrap_or(0)
-            / PAGE_SIZE
+        // the data segment should hold only the private data pages
+        debug_assert_eq!(
+            self.data_segment.len(),
+            self.itree
+                .as_ref()
+                .map(|i| i.private_data_size())
+                .unwrap_or(0)
+        );
+
+        self.data_segment.len() / PAGE_SIZE
     }
+
+    /// Number of pages coming from the reference file
     pub fn shared_pages(&self) -> usize {
         self.ref_range()
             .map(|(start, end)| {
@@ -204,6 +245,8 @@ impl JifPheader {
             .unwrap_or(0)
             / PAGE_SIZE
     }
+
+    /// Total number of pages in the pheader
     pub fn total_pages(&self) -> usize {
         let (begin, end) = self.virtual_range();
 
@@ -216,10 +259,12 @@ impl JifPheader {
 }
 
 impl JifRawPheader {
+    /// Serialized size of the raw JIF Pheader
     pub const fn serialized_size() -> usize {
         6 * std::mem::size_of::<u64>() + 3 * std::mem::size_of::<u32>() + std::mem::size_of::<u8>()
     }
 
+    /// Reconstruct the pheader from its materialized counterpart
     pub(crate) fn from_materialized(
         mut jif: JifPheader,
         string_map: &BTreeMap<String, usize>,
@@ -270,21 +315,32 @@ impl JifRawPheader {
         }
     }
 
+    /// The virtual address space range of the pheader
     pub fn virtual_range(&self) -> (u64, u64) {
         (self.vbegin, self.vend)
     }
+
+    /// The offset range into the JIF for the pheader data
     pub fn data_range(&self) -> (u64, u64) {
         (self.data_begin, self.data_end)
     }
+
+    /// The offset into the string table
     pub fn pathname_offset(&self) -> Option<u32> {
         (self.pathname_offset != u32::MAX).then_some(self.pathname_offset)
     }
+
+    /// The offset range into the referenced file
     pub fn ref_range(&self) -> Option<(u64, u64)> {
         (self.ref_begin != u64::MAX).then_some((self.ref_begin, self.ref_end))
     }
+
+    /// The `(index, len)` span of the itree nodes (into the itree node table)
     pub fn itree(&self) -> Option<(u32, u32)> {
         (self.itree_n_nodes != 0).then_some((self.itree_idx, self.itree_n_nodes))
     }
+
+    /// The protections concerning this vma
     pub fn prot(&self) -> u8 {
         self.prot
     }

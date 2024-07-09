@@ -10,12 +10,18 @@ use std::str::from_utf8;
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
 
+/// The materialized view over the JIF file
+///
+/// After materialization the JIF format simplifies greatly:
+/// it is simply a list of virtual memory areas (the pheaders)
+/// and the ordering list for the prefetcher
 pub struct Jif {
-    pub pheaders: Vec<JifPheader>,
-    pub ord_chunks: Vec<OrdChunk>,
+    pub(crate) pheaders: Vec<JifPheader>,
+    pub(crate) ord_chunks: Vec<OrdChunk>,
 }
 
-/// JIF file representation
+/// The "raw" JIF file representation
+/// This consists of a 1:1 mapping into how the data is layed out on disk
 ///
 pub struct JifRaw {
     pub(crate) pheaders: Vec<JifRawPheader>,
@@ -27,6 +33,7 @@ pub struct JifRaw {
 }
 
 impl Jif {
+    /// Materialize a `Jif` from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
         // sort by reverse order of data_begin
         raw.pheaders.sort_by(|a, b| b.data_begin.cmp(&a.data_begin));
@@ -44,6 +51,7 @@ impl Jif {
         })
     }
 
+    /// List out all the strings in the pheaders
     pub fn strings(&self) -> HashSet<&str> {
         self.pheaders
             .iter()
@@ -51,15 +59,18 @@ impl Jif {
             .collect()
     }
 
+    /// Read the `Jif` from a file
     pub fn from_reader<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<Self> {
         Ok(Jif::from_raw(JifRaw::from_reader(r)?)?)
     }
 
+    /// Write the `Jif` to a file
     pub fn to_writer<W: Write>(self, w: &mut W) -> JifResult<usize> {
         let raw = JifRaw::from_materialized(self);
         raw.to_writer(w)
     }
 
+    /// Compute the data offset (i.e., the offset where data starts being laid out)
     pub fn data_offset(&self) -> u64 {
         let header_size = JIF_MAGIC_HEADER.len()
             + std::mem::size_of::<u32>() // n_pheaders
@@ -90,6 +101,7 @@ impl Jif {
             + page_align(ord_size as u64)
     }
 
+    /// Construct the interval trees of all the pheaders
     pub fn build_itrees(&mut self) -> JifResult<()> {
         for p in self.pheaders.iter_mut() {
             p.build_itree()?;
@@ -98,12 +110,14 @@ impl Jif {
         Ok(())
     }
 
+    /// Rename a file globally
     pub fn rename_file(&mut self, old: &str, new: &str) {
         for p in self.pheaders.iter_mut() {
             p.rename_file(old, new);
         }
     }
 
+    /// Add a new ordering section
     pub fn add_ordering_info(&mut self, ordering_info: Vec<OrdChunk>) -> JifResult<()> {
         fn check_and_process(jif: &Jif, ordering_info: Vec<OrdChunk>) -> JifResult<Vec<OrdChunk>> {
             ordering_info
@@ -124,31 +138,37 @@ impl Jif {
         Ok(())
     }
 
+    /// Access the pheaders
     pub fn pheaders(&self) -> &[JifPheader] {
         &self.pheaders
     }
 
+    /// Access the ordering list
     pub fn ord_chunks(&self) -> &[OrdChunk] {
         &self.ord_chunks
     }
 
+    /// Compute the total number of zero pages encoded (by omission) in the JIF
     pub fn zero_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.zero_pages()).sum()
     }
 
+    /// Compute the total number of private pages stored (directly) in the JIF
     pub fn private_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.private_pages()).sum()
     }
 
+    /// Compute the total number of shared pages referenced by the JIF
     pub fn shared_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.shared_pages()).sum()
     }
 
+    /// The total number of pages
     pub fn total_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.total_pages()).sum()
     }
 
-    // for a particular address find the pheader (by index) which maps it
+    // Find the pheader (by index) that maps a particular address
     pub(crate) fn mapping_pheader_idx(&self, vaddr: u64) -> Option<usize> {
         self.pheaders
             .iter()
@@ -159,6 +179,7 @@ impl Jif {
 }
 
 impl JifRaw {
+    /// Construct a raw JIF from a materialized one
     pub fn from_materialized(jif: Jif) -> Self {
         let string_map = {
             let strings = jif
@@ -229,6 +250,8 @@ impl JifRaw {
             data_segments,
         }
     }
+
+    /// Remove the data from the raw JIF file
     pub fn take_data(&mut self) -> Vec<u8> {
         if self.data_segments.is_empty() {
             return Vec::new();
@@ -236,22 +259,27 @@ impl JifRaw {
         self.data_segments.split_off(0)
     }
 
+    /// Access the pheaders
     pub fn pheaders(&self) -> &[JifRawPheader] {
         &self.pheaders
     }
 
+    /// Access the ordering list
     pub fn ord_chunks(&self) -> &[OrdChunk] {
         &self.ord_chunks
     }
 
+    /// Access the interval tree node list
     pub fn itree_nodes(&self) -> &[ITreeNode] {
         &self.itree_nodes
     }
 
+    /// Access the data segments
     pub fn data(&self) -> &[u8] {
         &self.data_segments
     }
 
+    /// Access the string table
     pub fn strings(&self) -> Vec<&str> {
         let first_last_zero = self
             .strings_backing
@@ -268,7 +296,8 @@ impl JifRaw {
             .collect::<Vec<&str>>()
     }
 
-    pub fn string_at_offset(&self, offset: usize) -> Option<&str> {
+    /// Find a string at a particular offset
+    pub(crate) fn string_at_offset(&self, offset: usize) -> Option<&str> {
         if offset > self.strings_backing.len() {
             return None;
         }
@@ -279,7 +308,8 @@ impl JifRaw {
             .next()
     }
 
-    pub fn get_itree(&self, index: usize, n: usize) -> Option<ITree> {
+    /// Get an interval tree from an (index, len) range
+    pub(crate) fn get_itree(&self, index: usize, n: usize) -> Option<ITree> {
         if index.saturating_add(n) > self.itree_nodes.len() {
             return None;
         }

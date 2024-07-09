@@ -5,6 +5,7 @@ use crate::utils::{is_page_aligned, read_u64};
 use std::io::Read;
 
 impl ITreeNode {
+    /// Read and parse an ITreeNode
     pub fn from_reader<R: Read>(r: &mut R, itree_node_idx: usize) -> JifResult<Self> {
         let mut ranges = [Interval::default(); IVAL_PER_NODE];
         for idx in 0..IVAL_PER_NODE {
@@ -16,6 +17,7 @@ impl ITreeNode {
 }
 
 impl Interval {
+    /// Read and parse an Interval
     pub fn from_reader<R: Read>(
         r: &mut R,
         itree_node_idx: usize,

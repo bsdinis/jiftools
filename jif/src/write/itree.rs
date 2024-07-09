@@ -4,6 +4,7 @@ use crate::itree::{ITreeNode, Interval};
 use std::io::Write;
 
 impl ITreeNode {
+    /// Write an interval tree node
     pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
         let mut written = 0;
         for interval in self.ranges() {
@@ -15,6 +16,7 @@ impl ITreeNode {
 }
 
 impl Interval {
+    /// Write an interval
     pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
         w.write_all(&self.start.to_le_bytes())?;
         w.write_all(&self.end.to_le_bytes())?;

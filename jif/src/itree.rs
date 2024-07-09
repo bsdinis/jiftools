@@ -3,10 +3,25 @@ use crate::utils::{compare_pages, is_page_aligned, is_zero, PageCmp, PAGE_SIZE};
 pub(crate) const FANOUT: usize = 4;
 pub(crate) const IVAL_PER_NODE: usize = FANOUT - 1;
 
+/// Interval Tree representation
+///
+/// A balanced B-Tree where each node resolves an interval
+/// into a "data source".
+///
+/// For the virtual address range the tree is meant to span,
+/// looking up an address can yield 3 options
+///  - Address is found, with offset `u64::MAX`: means the address is backed by the zero page
+///  - Address is found, with a valid offset: means the address is backed by the page at that offset of the JIF file
+///  - Address is not found: means the address is backed by the reference file (with the offset
+///  being the offset of the virtual address into the virtual address range)
+///
 pub struct ITree {
     pub(crate) nodes: Vec<ITreeNode>,
 }
 
+/// Node in the interval tree
+///
+/// Encodes a series of intervals
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ITreeNode {
     ranges: [Interval; IVAL_PER_NODE],
@@ -17,20 +32,24 @@ impl ITreeNode {
         IVAL_PER_NODE * Interval::serialized_size()
     }
 
+    /// Build an `ITreeNode`
     pub(crate) fn new(ranges: [Interval; IVAL_PER_NODE]) -> Self {
         ITreeNode { ranges }
     }
 
+    /// Access the ranges within
     pub(crate) fn ranges(&self) -> &[Interval] {
         &self.ranges
     }
 
+    /// Shift the offsets in the intervals into a new base (i.e., a linear base shift)
     pub(crate) fn shift_offsets(&mut self, new_base: i64) {
         for interval in self.ranges.iter_mut() {
             interval.shift_offset(new_base);
         }
     }
 
+    /// For this node, find how many virtual address space bytes are backed by the zero page
     pub(crate) fn zero_byte_size(&self) -> usize {
         self.ranges()
             .iter()
@@ -39,6 +58,8 @@ impl ITreeNode {
             .sum()
     }
 
+    /// For this node, find how many virtual address space bytes are backed by the private data
+    /// (contained in the JIF)
     pub(crate) fn private_data_size(&self) -> usize {
         self.ranges()
             .iter()
@@ -47,6 +68,9 @@ impl ITreeNode {
             .sum()
     }
 
+    /// For this node, find how many virtual address space bytes are
+    /// backed by private data or zero pages (i.e., are not backed by a reference segment) within
+    /// a particular sub interval
     pub(crate) fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         self.ranges()
             .iter()
@@ -58,6 +82,10 @@ impl ITreeNode {
     }
 }
 
+/// Interval representation
+///
+/// We consider an interval valid if `start != u64::MAX` and `end != u64::MAX`
+/// If `offset == u64::MAX` it symbolizes that the interval references the zero page
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Interval {
     pub(crate) start: u64,
@@ -72,7 +100,12 @@ enum DiffState {
     AccumulatingZero,
 }
 
-pub fn create_itree_from_diff(base: &[u8], overlay: &mut Vec<u8>, virtual_base: u64) -> ITree {
+/// Create an interval tree by diffing a base (reference file) with an overlay (saved data)
+pub(crate) fn create_itree_from_diff(
+    base: &[u8],
+    overlay: &mut Vec<u8>,
+    virtual_base: u64,
+) -> ITree {
     fn remove_gaps(overlay: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
         // remove trailing empty space
         if let Some(Interval { start, end, offset }) = intervals.last() {
@@ -239,7 +272,8 @@ pub fn create_itree_from_diff(base: &[u8], overlay: &mut Vec<u8>, virtual_base: 
     ITree::build(intervals)
 }
 
-pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> ITree {
+/// Create an interval tree from a privately mapped region (by removing zero pages)
+pub(crate) fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> ITree {
     fn remove_gaps(data: &mut Vec<u8>, virtual_base: u64, intervals: &[Interval]) {
         intervals
             .iter()
@@ -307,14 +341,17 @@ pub fn create_itree_from_zero_page(data: &mut Vec<u8>, virtual_base: u64) -> ITr
 }
 
 impl ITree {
+    /// Construct a new interval tree
     pub fn new(nodes: Vec<ITreeNode>) -> Self {
         ITree { nodes }
     }
 
-    const fn n_itree_nodes_from_intervals(n_intervals: usize) -> usize {
+    /// How many itree nodes will be required given the number of intervals
+    pub const fn n_itree_nodes_from_intervals(n_intervals: usize) -> usize {
         (n_intervals + FANOUT - 2) / (FANOUT - 1)
     }
 
+    /// Build a new interval tree (by balancing the intervals)
     pub fn build(mut intervals: Vec<Interval>) -> Self {
         fn fill(
             nodes: &mut Vec<ITreeNode>,
@@ -359,24 +396,30 @@ impl ITree {
         ITree::new(nodes)
     }
 
+    /// Shift all the valid offsets in the interval tree unto a new base
     pub fn shift_offsets(&mut self, new_base: i64) {
         for n in self.nodes.iter_mut() {
             n.shift_offsets(new_base)
         }
     }
 
+    /// Size of the interval tree in number of nodes
     pub fn n_nodes(&self) -> usize {
         self.nodes.len()
     }
 
+    /// How much of the interval tree consists of zero page mappings
     pub fn zero_byte_size(&self) -> usize {
         self.nodes.iter().map(ITreeNode::zero_byte_size).sum()
     }
 
+    /// How much of the interval tree consists of private page mappings (i.e., data in the JIF)
     pub fn private_data_size(&self) -> usize {
         self.nodes.iter().map(ITreeNode::private_data_size).sum()
     }
 
+    /// How much of a particular `[start; end)` sub-interval of the address space
+    /// does this interval tree map with either zero pages or private pages
     pub fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         self.nodes
             .iter()
@@ -384,6 +427,8 @@ impl ITree {
             .sum()
     }
 
+    /// How much of a particular `[start; end)` sub-interval of the address space
+    /// does this interval tree not map (i.e., will be backed by a reference segment)
     pub fn not_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         (end - start) as usize - self.mapped_subregion_size(start, end)
     }

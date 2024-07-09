@@ -5,7 +5,7 @@ pub(crate) const MATERIALIZED_COMMAND_USAGE: &str = "materialized command: selec
 jif                                select the whole JIF
 jif.strings                        strings in the JIF
 jif.zero_pages                     number of zero pages
-jif.private_pages                  == data_size % PAGE_SIZE
+jif.private_pages                  number of private pages in the JIF
 jif.shared_pages                   number of shared pages in the pheader
 jif.pages                          total number of pages
 

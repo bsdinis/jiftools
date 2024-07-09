@@ -1,41 +1,72 @@
+//! JIF error types
+//!
+//! Encodes the error types possible when parsing/writing and manipulating JIF files
+
 use crate::JIF_MAGIC_HEADER;
 
+/// JIF result type
 pub type JifResult<T> = std::result::Result<T, JifError>;
+
+/// JIF error type
 #[derive(Debug)]
 pub enum JifError {
+    /// An error with IO ocurred
     IoError(std::io::Error),
+
+    /// Bad JIF magic header
     BadMagic,
+
+    /// Ill-formed JIF header
     BadHeader,
+
+    /// A particular section was poorly aligned
     BadAlignment,
+
+    /// Error with a particular pheader
     BadPheader {
         pheader_idx: usize,
         pheader_err: PheaderError,
     },
+
+    /// Error with a particular itree node
     BadITreeNode {
         itree_node_idx: usize,
         itree_node_err: ITreeNodeError,
     },
+
+    /// Could not find a particular data segment mentioned by a particular virtual address range
     DataSegmentNotFound {
         data_range: (u64, u64),
         virtual_range: (u64, u64),
     },
+
+    /// A requested ordering address is not mapped by this JIF
     UnmappedOrderingAddr(u64),
 }
 
+/// Pheader error types
 #[derive(Debug)]
 pub enum PheaderError {
+    /// The integer should have been page aligned, but wasn't
     BadAlignment(u64),
+
+    /// Invalid virtual range
     BadVirtualRange(u64, u64),
+
+    /// Invalid data range
     BadDataRange(u64, u64),
+
+    /// Invalid reference range
     BadRefRange {
         begin: u64,
         end: u64,
         pathname_offset: u32,
     },
-    InvalidOffset {
-        offset: u32,
-        size: u32,
-    },
+
+    /// Invalid string offset
+    InvalidOffset { offset: u32, size: u32 },
+
+    /// Invalid itree index
     InvalidITreeIndex {
         index: u32,
         tree_len: u32,
@@ -43,16 +74,23 @@ pub enum PheaderError {
     },
 }
 
+/// Error parsing `ITreeNode`s
 #[derive(Debug)]
 pub struct ITreeNodeError {
     pub(crate) interval_idx: usize,
     pub(crate) interval_err: IntervalError,
 }
 
+/// Error parsing Intervals
 #[derive(Debug)]
 pub enum IntervalError {
+    /// Value should be page aligned, but wasn't
     BadAlignment(u64),
+
+    /// The interval range is invalid
     BadRange(u64, u64),
+
+    /// The interval is invalid (mixed validity of fields)
     InvalidInterval(u64, u64, u64),
 }
 

@@ -6,6 +6,7 @@ use crate::{error::*, ITreeNode};
 use std::io::Write;
 
 impl JifRaw {
+    /// Write a JIF
     pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
         fn write_to_page_alignment<W: Write>(
             w: &mut W,

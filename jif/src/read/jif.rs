@@ -8,6 +8,7 @@ use crate::utils::{is_page_aligned, read_u32, seek_to_page};
 use std::io::{BufReader, Read, Seek};
 
 impl JifRaw {
+    /// Read and parse a JIF
     pub fn from_reader<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<Self> {
         let header = JifHeader::from_reader(r)?;
 
@@ -97,7 +98,8 @@ struct JifHeader {
 }
 
 impl JifHeader {
-    pub fn from_reader<R: Read>(r: &mut R) -> JifResult<Self> {
+    /// Read and parse a JIF header
+    fn from_reader<R: Read>(r: &mut R) -> JifResult<Self> {
         let mut buffer = [0u8; 4];
         r.read_exact(&mut buffer)?;
 
