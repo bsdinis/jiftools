@@ -56,7 +56,7 @@ pub(crate) enum JifCmd {
 #[derive(Debug)]
 pub(crate) enum OrdCmd {
     All,
-    Range(Option<usize>, Option<usize>),
+    Range(IndexRange),
     Len,
 }
 
@@ -81,7 +81,7 @@ pub(crate) struct PheaderSelector {
 pub(crate) enum PheaderCmd {
     Len,
     Selector {
-        range: Option<(Option<usize>, Option<usize>)>,
+        range: IndexRange,
         selector: PheaderSelector,
     },
     All,
@@ -138,7 +138,7 @@ pub(crate) enum RawJifCmd {
 #[derive(Debug)]
 pub(crate) enum ITreeCmd {
     All,
-    Range(Option<usize>, Option<usize>),
+    Range(IndexRange),
     Len,
 }
 
@@ -159,7 +159,7 @@ pub(crate) struct RawPheaderSelector {
 pub(crate) enum RawPheaderCmd {
     Len,
     Selector {
-        range: Option<(Option<usize>, Option<usize>)>,
+        range: IndexRange,
         selector: RawPheaderSelector,
     },
     All,
@@ -216,7 +216,7 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                     let (_prefix, suffix) = trimmed.split_at("ord".len());
                     let (range, suffix) = find_range(trimmed, suffix)?;
 
-                    if let Some((start, end)) = range {
+                    if range.is_some() {
                         if !suffix.is_empty() {
                             return Err(anyhow::anyhow!(
                                 "trailing data after range in {}: {}",
@@ -225,7 +225,7 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                             ));
                         }
 
-                        MaterializedCommand::Ord(OrdCmd::Range(start, end))
+                        MaterializedCommand::Ord(OrdCmd::Range(range))
                     } else {
                         let options = ["", ".len"];
                         let idx = find_single_option(trimmed, suffix, &options)?;
@@ -353,7 +353,7 @@ impl TryFrom<Option<String>> for RawCommand {
                     let (_prefix, suffix) = trimmed.split_at("ord".len());
                     let (range, suffix) = find_range(trimmed, suffix)?;
 
-                    if let Some((start, end)) = range {
+                    if range.is_some() {
                         if !suffix.is_empty() {
                             return Err(anyhow::anyhow!(
                                 "trailing data after range in {}: {}",
@@ -362,7 +362,7 @@ impl TryFrom<Option<String>> for RawCommand {
                             ));
                         }
 
-                        RawCommand::Ord(OrdCmd::Range(start, end))
+                        RawCommand::Ord(OrdCmd::Range(range))
                     } else {
                         let options = ["", ".len"];
                         let idx = find_single_option(trimmed, suffix, &options)?;
@@ -376,7 +376,7 @@ impl TryFrom<Option<String>> for RawCommand {
                     let (_prefix, suffix) = trimmed.split_at("itree".len());
                     let (range, suffix) = find_range(trimmed, suffix)?;
 
-                    if let Some((start, end)) = range {
+                    if range.is_some() {
                         if !suffix.is_empty() {
                             return Err(anyhow::anyhow!(
                                 "trailing data after range in {}: {}",
@@ -385,7 +385,7 @@ impl TryFrom<Option<String>> for RawCommand {
                             ));
                         }
 
-                        RawCommand::ITree(ITreeCmd::Range(start, end))
+                        RawCommand::ITree(ITreeCmd::Range(range))
                     } else {
                         let options = ["", ".len"];
                         let idx = find_single_option(trimmed, suffix, &options)?;

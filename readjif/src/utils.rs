@@ -1,5 +1,20 @@
 use std::collections::HashSet;
 
+#[derive(Debug)]
+pub(crate) enum IndexRange {
+    LeftOpen { end: usize },
+    RightOpen { start: usize },
+    Closed { start: usize, end: usize },
+    Index(usize),
+    None,
+}
+
+impl IndexRange {
+    pub(crate) fn is_some(&self) -> bool {
+        !matches!(self, IndexRange::None)
+    }
+}
+
 /// Finds if a single option follows the prefix on the string
 /// Returns the index into options
 pub(crate) fn find_single_option(
@@ -88,54 +103,55 @@ pub(crate) fn find_multiple_option(
 pub(crate) fn find_range<'a>(
     original: &str,
     suffix: &'a str,
-) -> anyhow::Result<(Option<(Option<usize>, Option<usize>)>, &'a str)> {
+) -> anyhow::Result<(IndexRange, &'a str)> {
     if !suffix.starts_with('[') {
-        return Ok((None, suffix));
+        return Ok((IndexRange::None, suffix));
     }
 
     let suffix = &suffix[1..];
 
     if let Some((range, suffix)) = suffix.split_once(']') {
         if let Some((start_str, end_str)) = range.split_once("..") {
-            let start = if start_str != "" {
-                Some(start_str.parse::<usize>().map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to parse start of the interval {} ({}): {}",
-                        range,
-                        start_str,
-                        e
-                    )
-                })?)
-            } else {
-                None
-            };
+            let start_opt = (start_str.is_empty())
+                .then(|| {
+                    start_str.parse::<usize>().map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to parse start of the interval {} ({}): {}",
+                            range,
+                            start_str,
+                            e
+                        )
+                    })
+                })
+                .transpose()?;
 
-            let end = if end_str != "" {
-                Some(end_str.parse::<usize>().map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to parse end of the interval {} ({}): {}",
-                        range,
-                        end_str,
-                        e
-                    )
-                })?)
-            } else {
-                None
-            };
+            let end_opt = (end_str.is_empty())
+                .then(|| {
+                    end_str.parse::<usize>().map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to parse end of the interval {} ({}): {}",
+                            range,
+                            end_str,
+                            e
+                        )
+                    })
+                })
+                .transpose()?;
 
-            let range = if start.is_none() && end.is_none() {
-                None
-            } else {
-                Some((start, end))
+            let range = match (start_opt, end_opt) {
+                (None, None) => IndexRange::None,
+                (Some(start), None) => IndexRange::RightOpen { start },
+                (None, Some(end)) => IndexRange::LeftOpen { end },
+                (Some(start), Some(end)) => IndexRange::Closed { start, end },
             };
 
             Ok((range, suffix))
         } else {
-            Err(anyhow::anyhow!(
-                "failed to find range in {}: invalid range {}",
-                original,
-                range
-            ))
+            let idx = range
+                .parse::<usize>()
+                .map_err(|e| anyhow::anyhow!("failed to parse index {}: {}", range, e))?;
+
+            Ok((IndexRange::Index(idx), suffix))
         }
     } else {
         Err(anyhow::anyhow!(

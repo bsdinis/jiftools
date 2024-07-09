@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::BufRead;
 use std::str::FromStr;
 
-#[derive(Copy, Clone, Ord)]
+#[derive(Copy, Clone)]
 pub(crate) struct TimesampedAccess {
     pub(crate) usecs: usize,
     pub(crate) addr: usize,
@@ -27,18 +27,10 @@ impl Eq for TimesampedAccess {}
 
 impl PartialOrd for TimesampedAccess {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.usecs < other.usecs {
-            Some(std::cmp::Ordering::Less)
-        } else if self.usecs > other.usecs {
-            Some(std::cmp::Ordering::Greater)
-        } else {
-            // all is equal except the addr
-            if self.addr == other.addr {
-                Some(std::cmp::Ordering::Equal)
-            } else {
-                // different addrs are not comparable
-                None
-            }
+        match (self.usecs.cmp(&other.usecs), self.addr == other.addr) {
+            (std::cmp::Ordering::Equal, true) => Some(std::cmp::Ordering::Equal),
+            (std::cmp::Ordering::Equal, false) => None,
+            (a, _) => Some(a),
         }
     }
 }
@@ -49,7 +41,7 @@ impl FromStr for TimesampedAccess {
     ///
     /// `<usecs>: <address>`
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (usec_str, addr_str) = s.split_once(":").ok_or_else(|| {
+        let (usec_str, addr_str) = s.split_once(':').ok_or_else(|| {
             anyhow::anyhow!("could not find usecond/address delimiter `:` in `{}`", s)
         })?;
 
@@ -60,7 +52,7 @@ impl FromStr for TimesampedAccess {
         let addr = if let Some(hex_str) = addr_str.trim().strip_prefix("0x") {
             usize::from_str_radix(hex_str, 0x10)
         } else {
-            usize::from_str_radix(addr_str.trim(), 10)
+            addr_str.trim().parse::<usize>()
         }
         .context(format!("failed to parse address string: {}", addr_str))?;
 
@@ -98,8 +90,8 @@ pub(crate) fn process_tsa_log(log: Vec<TimesampedAccess>) -> Vec<TimesampedAcces
             .or_insert(tsa);
     }
 
-    let mut log = map.into_iter().map(|(_addr, tsa)| tsa).collect::<Vec<_>>();
-    log.sort();
+    let mut log = map.into_values().collect::<Vec<_>>();
+    log.sort_by_key(|tsa| tsa.usecs);
 
     log
 }

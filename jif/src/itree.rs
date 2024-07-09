@@ -386,7 +386,6 @@ impl ITree {
 
         let n_nodes = Self::n_itree_nodes_from_intervals(intervals.len());
         let mut nodes = (0..n_nodes)
-            .into_iter()
             .map(|_| ITreeNode::default())
             .collect::<Vec<_>>();
 
@@ -452,7 +451,7 @@ impl Interval {
             if new_base > 0 {
                 self.offset += new_base as u64
             } else {
-                self.offset -= new_base.abs() as u64
+                self.offset -= new_base.unsigned_abs()
             }
         }
     }

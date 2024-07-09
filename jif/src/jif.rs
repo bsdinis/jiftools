@@ -42,7 +42,7 @@ impl Jif {
         let pheaders = raw
             .pheaders
             .iter()
-            .map(|raw_pheader| JifPheader::from_raw(&raw, &raw_pheader, &mut data_segments))
+            .map(|raw_pheader| JifPheader::from_raw(&raw, raw_pheader, &mut data_segments))
             .collect::<Result<Vec<JifPheader>, _>>()?;
 
         Ok(Jif {
@@ -61,7 +61,7 @@ impl Jif {
 
     /// Read the `Jif` from a file
     pub fn from_reader<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<Self> {
-        Ok(Jif::from_raw(JifRaw::from_reader(r)?)?)
+        Jif::from_raw(JifRaw::from_reader(r)?)
     }
 
     /// Write the `Jif` to a file
@@ -189,16 +189,14 @@ impl JifRaw {
                 .collect::<HashSet<_>>();
 
             let mut offset = 0;
-            let string_map = strings
+            strings
                 .into_iter()
                 .map(|s| {
                     let r = (s, offset);
                     offset += r.0.len() + 1 /* NUL */;
                     r
                 })
-                .collect::<BTreeMap<_, _>>();
-
-            string_map
+                .collect::<BTreeMap<_, _>>()
         };
 
         let data_offset = jif.data_offset();

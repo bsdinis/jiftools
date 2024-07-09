@@ -8,8 +8,8 @@ impl ITreeNode {
     /// Read and parse an ITreeNode
     pub fn from_reader<R: Read>(r: &mut R, itree_node_idx: usize) -> JifResult<Self> {
         let mut ranges = [Interval::default(); IVAL_PER_NODE];
-        for idx in 0..IVAL_PER_NODE {
-            ranges[idx] = Interval::from_reader(r, itree_node_idx, idx)?;
+        for (idx, interval) in ranges.iter_mut().enumerate() {
+            *interval = Interval::from_reader(r, itree_node_idx, idx)?;
         }
 
         Ok(ITreeNode::new(ranges))

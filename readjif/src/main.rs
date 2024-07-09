@@ -71,6 +71,7 @@ mod selectors;
 mod utils;
 
 use crate::selectors::*;
+use crate::utils::IndexRange;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -113,10 +114,9 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
         RawCommand::Ord(o) => {
             let ords = jif.ord_chunks();
             match o {
-                OrdCmd::All => println!("{:#x?}", ords),
+                OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
-                OrdCmd::Range(None, None) => println!("{:#x?}", ords),
-                OrdCmd::Range(Some(start), None) => println!(
+                OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:#x?}",
                     if start < ords.len() {
                         &ords[start..]
@@ -124,10 +124,10 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                         &[]
                     }
                 ),
-                OrdCmd::Range(None, Some(end)) => {
+                OrdCmd::Range(IndexRange::LeftOpen { end }) => {
                     println!("{:#x?}", &ords[..std::cmp::min(end, ords.len())])
                 }
-                OrdCmd::Range(Some(start), Some(end)) => println!(
+                OrdCmd::Range(IndexRange::Closed { start, end }) => println!(
                     "{:#x?}",
                     if start < ords.len() {
                         &ords[start..std::cmp::min(end, ords.len())]
@@ -135,15 +135,21 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                         &[]
                     }
                 ),
+                OrdCmd::Range(IndexRange::Index(idx)) => {
+                    if idx < ords.len() {
+                        println!("{:#x?}", &ords[idx]);
+                    }
+                }
             }
         }
         RawCommand::ITree(i) => {
             let itree_nodes = jif.itree_nodes();
             match i {
-                ITreeCmd::All => println!("{:#x?}", itree_nodes),
+                ITreeCmd::All | ITreeCmd::Range(IndexRange::None) => {
+                    println!("{:#x?}", itree_nodes)
+                }
                 ITreeCmd::Len => println!("n_itree_nodes: {}", itree_nodes.len()),
-                ITreeCmd::Range(None, None) => println!("{:#x?}", itree_nodes),
-                ITreeCmd::Range(Some(start), None) => println!(
+                ITreeCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:#x?}",
                     if start < itree_nodes.len() {
                         &itree_nodes[start..]
@@ -151,13 +157,13 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                         &[]
                     }
                 ),
-                ITreeCmd::Range(None, Some(end)) => {
+                ITreeCmd::Range(IndexRange::LeftOpen { end }) => {
                     println!(
                         "{:#x?}",
                         &itree_nodes[..std::cmp::min(end, itree_nodes.len())]
                     )
                 }
-                ITreeCmd::Range(Some(start), Some(end)) => println!(
+                ITreeCmd::Range(IndexRange::Closed { start, end }) => println!(
                     "{:#x?}",
                     if start < itree_nodes.len() {
                         &itree_nodes[start..std::cmp::min(end, itree_nodes.len())]
@@ -165,6 +171,11 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                         &[]
                     }
                 ),
+                ITreeCmd::Range(IndexRange::Index(idx)) => {
+                    if idx < itree_nodes.len() {
+                        println!("{:#x?}", itree_nodes[idx]);
+                    }
+                }
             }
         }
         RawCommand::Pheader(p) => {
@@ -174,23 +185,31 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                 RawPheaderCmd::All => println!("{:#x?}", pheaders),
                 RawPheaderCmd::Selector { range, selector } => {
                     let ranged_pheaders = match range {
-                        None => pheaders,
-                        Some((Some(start), Some(end))) => {
+                        IndexRange::None => pheaders,
+                        IndexRange::Closed { start, end } => {
                             if start < pheaders.len() {
                                 &pheaders[start..std::cmp::min(end, pheaders.len())]
                             } else {
                                 &[]
                             }
                         }
-                        Some((None, Some(end))) => &pheaders[..std::cmp::min(end, pheaders.len())],
-                        Some((Some(start), None)) => {
+                        IndexRange::LeftOpen { end } => {
+                            &pheaders[..std::cmp::min(end, pheaders.len())]
+                        }
+                        IndexRange::RightOpen { start } => {
                             if start < pheaders.len() {
                                 &pheaders[start..]
                             } else {
                                 &[]
                             }
                         }
-                        Some((None, None)) => pheaders,
+                        IndexRange::Index(idx) => {
+                            if idx < pheaders.len() {
+                                &pheaders[idx..(idx + 1)]
+                            } else {
+                                &[]
+                            }
+                        }
                     };
 
                     println!("[");
@@ -291,10 +310,9 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
         MaterializedCommand::Ord(o) => {
             let ords = jif.ord_chunks();
             match o {
-                OrdCmd::All => println!("{:#x?}", ords),
+                OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
-                OrdCmd::Range(None, None) => println!("{:#x?}", ords),
-                OrdCmd::Range(Some(start), None) => println!(
+                OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:#x?}",
                     if start < ords.len() {
                         &ords[start..]
@@ -302,10 +320,10 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                         &[]
                     }
                 ),
-                OrdCmd::Range(None, Some(end)) => {
+                OrdCmd::Range(IndexRange::LeftOpen { end }) => {
                     println!("{:#x?}", &ords[..std::cmp::min(end, ords.len())])
                 }
-                OrdCmd::Range(Some(start), Some(end)) => println!(
+                OrdCmd::Range(IndexRange::Closed { start, end }) => println!(
                     "{:#x?}",
                     if start < ords.len() {
                         &ords[start..std::cmp::min(end, ords.len())]
@@ -313,6 +331,11 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                         &[]
                     }
                 ),
+                OrdCmd::Range(IndexRange::Index(idx)) => {
+                    if idx < ords.len() {
+                        println!("{:#x?}", &ords[idx]);
+                    }
+                }
             }
         }
         MaterializedCommand::Pheader(p) => {
@@ -322,23 +345,31 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                 PheaderCmd::All => println!("{:#x?}", pheaders),
                 PheaderCmd::Selector { range, selector } => {
                     let ranged_pheaders = match range {
-                        None => pheaders,
-                        Some((Some(start), Some(end))) => {
+                        IndexRange::None => pheaders,
+                        IndexRange::Closed { start, end } => {
                             if start < pheaders.len() {
                                 &pheaders[start..std::cmp::min(end, pheaders.len())]
                             } else {
                                 &[]
                             }
                         }
-                        Some((None, Some(end))) => &pheaders[..std::cmp::min(end, pheaders.len())],
-                        Some((Some(start), None)) => {
+                        IndexRange::LeftOpen { end } => {
+                            &pheaders[..std::cmp::min(end, pheaders.len())]
+                        }
+                        IndexRange::RightOpen { start } => {
                             if start < pheaders.len() {
                                 &pheaders[start..]
                             } else {
                                 &[]
                             }
                         }
-                        Some((None, None)) => pheaders,
+                        IndexRange::Index(idx) => {
+                            if idx < pheaders.len() {
+                                &pheaders[idx..(idx + 1)]
+                            } else {
+                                &[]
+                            }
+                        }
                     };
 
                     println!("[");

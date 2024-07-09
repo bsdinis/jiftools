@@ -70,7 +70,7 @@ fn read_virtual_range<R: Read>(
         false, /* special value */
         false, /* allow empty */
         pheader_idx,
-        |a, b| PheaderError::BadVirtualRange(a, b),
+        PheaderError::BadVirtualRange,
     )
 }
 
@@ -85,7 +85,7 @@ fn read_data_range<R: Read>(
         false, /* special value */
         true,  /* allow empty */
         pheader_idx,
-        |a, b| PheaderError::BadDataRange(a, b),
+        PheaderError::BadDataRange,
     )
 }
 
