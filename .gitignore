@@ -3,5 +3,7 @@ Cargo.lock
 **/*.jif
 **/*.svg
 **/*.ord
+**/*.png
+**/*.pdf
 **/perf.data*
 .envrc

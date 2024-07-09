@@ -368,6 +368,14 @@ impl JifPheader {
         );
         (end as usize - begin as usize) / PAGE_SIZE
     }
+
+    /// Iterate over the private pages in the pheader
+    pub fn iter_private_pages(&self) -> Box<dyn Iterator<Item = &[u8]> + '_> {
+        match self {
+            JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages()),
+            JifPheader::Reference { itree, .. } => Box::new(itree.iter_private_pages()),
+        }
+    }
 }
 
 impl JifRawPheader {

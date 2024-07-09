@@ -49,6 +49,7 @@ pub trait IntervalData {
     fn is_none(&self) -> bool;
     fn is_data(&self) -> bool;
     fn take_data(&mut self) -> Option<Vec<u8>>;
+    fn get_data(&self) -> Option<&[u8]>;
 }
 
 impl IntervalData for AnonIntervalData {
@@ -68,6 +69,13 @@ impl IntervalData for AnonIntervalData {
             None
         }
     }
+    fn get_data(&self) -> Option<&[u8]> {
+        if let AnonIntervalData::Data(ref v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 impl IntervalData for RefIntervalData {
@@ -83,6 +91,13 @@ impl IntervalData for RefIntervalData {
     fn take_data(&mut self) -> Option<Vec<u8>> {
         if let RefIntervalData::Data(ref mut v) = self {
             Some(v.split_off(0))
+        } else {
+            None
+        }
+    }
+    fn get_data(&self) -> Option<&[u8]> {
+        if let RefIntervalData::Data(ref v) = self {
+            Some(v)
         } else {
             None
         }

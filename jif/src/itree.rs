@@ -1,6 +1,7 @@
 use crate::error::*;
 use crate::interval::{Interval, IntervalData};
 use crate::itree_node::{ITreeNode, FANOUT};
+use crate::utils::PAGE_SIZE;
 
 /// Interval Tree representation
 ///
@@ -192,6 +193,104 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     /// does this interval tree not map (i.e., will be backed by a reference segment)
     pub(crate) fn not_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         (end - start) as usize - self.mapped_subregion_size(start, end)
+    }
+
+    /// Iterate over the private pages in the interval tree
+    ///
+    // TODO(array_chunks): waiting on the `array_chunks` (#![feature(iter_array_chunks)]) that carries
+    // the size information to change the output type to &[u8; PAGE_SIZE]
+    pub fn iter_private_pages(&self) -> impl Iterator<Item = &[u8]> {
+        ITreeIterator::new(self)
+            .filter_map(|i| i.data.get_data().map(|d| d.chunks_exact(PAGE_SIZE)))
+            .flatten()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum InOrderTraversalState {
+    Outer {
+        node_idx: usize,
+    },
+    BeforeRecursion {
+        node_idx: usize,
+        child_idx: usize,
+        range_idx: usize,
+    },
+    AfterRecursion {
+        node_idx: usize,
+        child_idx: usize,
+        range_idx: usize,
+    },
+}
+struct ITreeIterator<'a, Data: IntervalData> {
+    nodes: &'a [ITreeNode<Data>],
+    stack: Vec<InOrderTraversalState>,
+}
+
+impl<'a, Data: IntervalData> ITreeIterator<'a, Data> {
+    fn new(itree: &'a ITree<Data>) -> Self {
+        let stack = if itree.nodes.is_empty() {
+            Vec::new()
+        } else {
+            vec![InOrderTraversalState::Outer { node_idx: 0 }]
+        };
+        ITreeIterator {
+            nodes: &itree.nodes,
+            stack,
+        }
+    }
+}
+
+impl<'a, Data: IntervalData> Iterator for ITreeIterator<'a, Data> {
+    type Item = &'a Interval<Data>;
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(state) = self.stack.pop() {
+            match state {
+                InOrderTraversalState::Outer { node_idx } => {
+                    if node_idx < self.nodes.len() {
+                        self.stack.push(InOrderTraversalState::BeforeRecursion {
+                            node_idx,
+                            child_idx: node_idx * FANOUT + 1,
+                            range_idx: 0,
+                        });
+                    }
+                }
+                InOrderTraversalState::BeforeRecursion {
+                    node_idx,
+                    child_idx,
+                    range_idx,
+                } => {
+                    if range_idx < FANOUT - 1 {
+                        self.stack.push(InOrderTraversalState::AfterRecursion {
+                            node_idx,
+                            child_idx,
+                            range_idx,
+                        });
+                    }
+
+                    if range_idx < FANOUT {
+                        self.stack.push(InOrderTraversalState::Outer {
+                            node_idx: child_idx,
+                        })
+                    }
+                }
+                InOrderTraversalState::AfterRecursion {
+                    node_idx,
+                    child_idx,
+                    range_idx,
+                } => {
+                    self.stack.push(InOrderTraversalState::BeforeRecursion {
+                        node_idx,
+                        child_idx: child_idx + 1,
+                        range_idx: range_idx + 1,
+                    });
+
+                    return Some(&self.nodes[node_idx].ranges[range_idx]);
+                }
+            }
+        }
+
+        None
     }
 }
 

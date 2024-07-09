@@ -187,6 +187,13 @@ impl Jif {
             .find(|(_idx, pheader)| pheader.mapps_addr(vaddr))
             .map(|(idx, _pheader)| idx)
     }
+
+    /// Iterate over all the private pages
+    pub fn iter_private_pages(&self) -> impl Iterator<Item = &[u8]> {
+        self.pheaders
+            .iter()
+            .flat_map(JifPheader::iter_private_pages)
+    }
 }
 
 impl JifRaw {

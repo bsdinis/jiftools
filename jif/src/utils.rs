@@ -96,6 +96,11 @@ pub(crate) fn is_zero(page: &[u8]) -> bool {
 }
 
 // ASSUMPTION: base.len() == overlay.len() == PAGE_SIZE
+// TODO(array_chunks): waiting on the `array_chunks` (#![feature(iter_array_chunks)]) that carries
+// the size information to change the input types to &[u8; PAGE_SIZE]
+//
+// required right now because the slices are created by `[u8]::chunks_exact`, which does not carry
+// size information
 pub(crate) fn compare_pages(base: &[u8], overlay: &[u8]) -> PageCmp {
     if is_zero(overlay) {
         return PageCmp::Zero;
