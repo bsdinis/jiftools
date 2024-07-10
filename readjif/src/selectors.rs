@@ -18,8 +18,7 @@ pheader[<range>]                   select the pheaders in the range
 pheader.len                        number of pheaders
 pheader.data_size                  size of the data region (mixable with range and other selectors)
 pheader.pathname                   reference pathname (mixable with range and other selectors)
-pheader.ref_range                  reference range in the path (mixable with range and other selectors)
-pheader.ref_size                   size of the reference range (mixable with range and other selectors)
+pheader.ref_offset                 offset into the file
 pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
 pheader.virtual_size               size of the virtual address range (mixable with range and other selectors)
 pheader.prot                       area `rwx` protections (mixable with range and other selectors)
@@ -66,8 +65,7 @@ pub(crate) struct PheaderSelector {
     pub(crate) virtual_size: bool,
     pub(crate) data_size: bool,
     pub(crate) pathname: bool,
-    pub(crate) ref_range: bool,
-    pub(crate) ref_size: bool,
+    pub(crate) ref_offset: bool,
     pub(crate) prot: bool,
     pub(crate) itree: bool,
     pub(crate) n_itree_nodes: bool,
@@ -108,16 +106,12 @@ ord.len                            number of ord chunks
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
 pheader.len                        number of pheaders
-pheader.data_range                 data range of the pheaders (mixable with range and other selectors)
-pheader.data_size                  size of the data range (mixable with range and other selectors)
 pheader.pathname_offset            reference pathname (mixable with range and other selectors)
-pheader.ref_range                  reference range in the path (mixable with range and other selectors)
-pheader.ref_size                   size of the reference range (mixable with range and other selectors)
+pheader.ref_offset                 offset into the file
 pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
 pheader.virtual_size               size of the virtual address range (mixable with range and other selectors)
 pheader.prot                       area `rwx` protections (mixable with range and other selectors)
 pheader.itree                      show the interval tree offset and size in number of nodes (mixable with range and other selectors)
-pheader.zero_pages                 number of zero pages
 ";
 
 #[derive(Debug)]
@@ -144,13 +138,10 @@ pub(crate) enum ITreeCmd {
 
 #[derive(Debug, Default)]
 pub(crate) struct RawPheaderSelector {
-    pub(crate) data_range: bool,
-    pub(crate) data_size: bool,
     pub(crate) virtual_range: bool,
     pub(crate) virtual_size: bool,
     pub(crate) pathname_offset: bool,
-    pub(crate) ref_range: bool,
-    pub(crate) ref_size: bool,
+    pub(crate) ref_offset: bool,
     pub(crate) prot: bool,
     pub(crate) itree: bool,
 }
@@ -246,15 +237,14 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                         ".virtual_size",  // 3
                         ".data_size",     // 4
                         ".pathname",      // 5
-                        ".ref_range",     // 6
-                        ".ref_size",      // 7
-                        ".prot",          // 8
-                        ".itree",         // 9
-                        ".n_itree_nodes", // 10
-                        ".zero_pages",    // 11
-                        ".private_pages", // 12
-                        ".shared_pages",  // 13
-                        ".pages",         // 14
+                        ".ref_offset",    // 6
+                        ".prot",          // 7
+                        ".itree",         // 8
+                        ".n_itree_nodes", // 9
+                        ".zero_pages",    // 10
+                        ".private_pages", // 11
+                        ".shared_pages",  // 12
+                        ".pages",         // 13
                     ];
                     let found_options = find_multiple_option(trimmed, suffix, &options)?;
 
@@ -284,33 +274,27 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                             selector.pathname = true;
                         }
                         if found_options.contains(&6) {
-                            selector.ref_range = true;
+                            selector.ref_offset = true;
                         }
                         if found_options.contains(&7) {
-                            selector.ref_size = true;
-                        }
-                        if found_options.contains(&8) {
                             selector.prot = true;
                         }
-                        if found_options.contains(&9) {
+                        if found_options.contains(&8) {
                             selector.itree = true;
                         }
-                        if found_options.contains(&10) {
+                        if found_options.contains(&9) {
                             selector.n_itree_nodes = true;
                         }
                         if found_options.contains(&10) {
-                            selector.n_itree_nodes = true;
-                        }
-                        if found_options.contains(&11) {
                             selector.zero_pages = true;
                         }
-                        if found_options.contains(&12) {
+                        if found_options.contains(&11) {
                             selector.private_pages = true;
                         }
-                        if found_options.contains(&13) {
+                        if found_options.contains(&12) {
                             selector.shared_pages = true;
                         }
-                        if found_options.contains(&14) {
+                        if found_options.contains(&13) {
                             selector.pages = true;
                         }
 
@@ -404,17 +388,10 @@ impl TryFrom<Option<String>> for RawCommand {
                         ".len",             // 1
                         ".virtual_range",   // 2
                         ".virtual_size",    // 3
-                        ".data_range",      // 4
-                        ".data_size",       // 5
-                        ".pathname_offset", // 6
-                        ".ref_range",       // 7
-                        ".ref_size",        // 8
-                        ".prot",            // 9
-                        ".itree",           // 10
-                        ".zero_pages",      // 11
-                        ".private_pages",   // 12
-                        ".shared_pages",    // 13
-                        ".pages",           // 14
+                        ".pathname_offset", // 4
+                        ".ref_offset",      // 5
+                        ".prot",            // 6
+                        ".itree",           // 7
                     ];
                     let found_options = find_multiple_option(trimmed, suffix, &options)?;
 
@@ -438,24 +415,15 @@ impl TryFrom<Option<String>> for RawCommand {
                             selector.virtual_size = true;
                         }
                         if found_options.contains(&4) {
-                            selector.data_range = true;
-                        }
-                        if found_options.contains(&5) {
-                            selector.data_size = true;
-                        }
-                        if found_options.contains(&6) {
                             selector.pathname_offset = true;
                         }
-                        if found_options.contains(&7) {
-                            selector.ref_range = true;
+                        if found_options.contains(&5) {
+                            selector.ref_offset = true;
                         }
-                        if found_options.contains(&8) {
-                            selector.ref_size = true;
-                        }
-                        if found_options.contains(&9) {
+                        if found_options.contains(&6) {
                             selector.prot = true;
                         }
-                        if found_options.contains(&10) {
+                        if found_options.contains(&7) {
                             selector.itree = true;
                         }
 

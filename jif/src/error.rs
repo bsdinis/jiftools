@@ -34,6 +34,12 @@ pub enum JifError {
         itree_node_err: ITreeNodeError,
     },
 
+    /// Error with an ord chunk
+    BadOrdChunk {
+        ord_chunk_idx: usize,
+        ord_chunk_err: OrdChunkError,
+    },
+
     /// Could not find a particular data segment mentioned by a particular virtual address range
     DataSegmentNotFound {
         data_range: (u64, u64),
@@ -69,11 +75,7 @@ pub enum PheaderError {
     BadDataRange(u64, u64),
 
     /// Invalid reference range
-    BadRefRange {
-        begin: u64,
-        end: u64,
-        pathname_offset: u32,
-    },
+    BadRefRange { offset: u64, pathname_offset: u32 },
 
     /// Invalid string offset
     InvalidOffset { offset: u32, size: u32 },
@@ -106,6 +108,13 @@ pub enum IntervalError {
     InvalidInterval(u64, u64, u64),
 }
 
+/// Pheader error types
+#[derive(Debug)]
+pub enum OrdChunkError {
+    /// The integer should have been page aligned, but wasn't
+    BadAlignment(u64),
+}
+
 impl std::fmt::Display for JifError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("jif error: ")?;
@@ -123,6 +132,13 @@ impl std::fmt::Display for JifError {
             } => f.write_fmt(format_args!(
                 "bad pheader (idx = {}): {}",
                 pheader_idx, pheader_err
+            )),
+            JifError::BadOrdChunk {
+                ord_chunk_idx,
+                ord_chunk_err,
+            } => f.write_fmt(format_args!(
+                "bad ord chunk (idx = {}): {}",
+                ord_chunk_idx, ord_chunk_err
             )),
             JifError::BadITreeNode {
                 itree_node_idx,
@@ -163,6 +179,7 @@ impl std::error::Error for JifError {
             JifError::BadAlignment => None,
             JifError::BadPheader { pheader_err, .. } => Some(pheader_err),
             JifError::BadITreeNode { itree_node_err, .. } => Some(itree_node_err),
+            JifError::BadOrdChunk { ord_chunk_err, .. } => Some(ord_chunk_err),
             JifError::DataSegmentNotFound { .. } => None,
             JifError::ITreeNotFound { .. } => None,
             JifError::UnmappedOrderingAddr(_) => None,
@@ -191,12 +208,11 @@ impl std::fmt::Display for PheaderError {
                 first, second
             )),
             PheaderError::BadRefRange {
-                begin,
-                end,
+                offset,
                 pathname_offset,
             } => f.write_fmt(format_args!(
-                "invalid ref range [{:#x}; {:#x}) [should be consistent with pathname offset {:#x}]",
-                begin, end, pathname_offset
+                "invalid ref offset {:#x} [should be consistent with pathname offset {:#x}]",
+                offset, pathname_offset
             )),
             PheaderError::InvalidOffset { offset, size } => f.write_fmt(format_args!(
                 "string offset ({:#x}) overflows size ({:#x})",
@@ -234,6 +250,23 @@ impl std::fmt::Display for ITreeNodeError {
 impl std::error::Error for ITreeNodeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.interval_err)
+    }
+}
+
+impl std::fmt::Display for OrdChunkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OrdChunkError::BadAlignment(v) => f.write_fmt(format_args!(
+                "expected virtual address to be page aligned: {:x}",
+                v
+            )),
+        }
+    }
+}
+
+impl std::error::Error for OrdChunkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
     }
 }
 

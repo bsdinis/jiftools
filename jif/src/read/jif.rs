@@ -65,7 +65,7 @@ impl JifRaw {
 
         let n_ords = header.ord_size as usize / OrdChunk::serialized_size();
         let ord_chunks = (0..n_ords)
-            .map(|_| OrdChunk::from_reader(r))
+            .map(|idx| OrdChunk::from_reader(r, idx))
             .filter(|o| o.as_ref().map(|x| !x.is_empty()).unwrap_or(true))
             .collect::<Result<Vec<_>, _>>()?;
 

@@ -30,7 +30,7 @@ pub struct JifPheader {
     pub(crate) vaddr_range: (u64, u64),
 
     /// reference path + offset range
-    pub(crate) ref_range: Option<(String, u64, u64)>,
+    pub(crate) ref_segment: Option<(String, u64)>,
 
     pub(crate) itree: ITree,
     pub(crate) prot: u8,
@@ -44,11 +44,7 @@ pub struct JifRawPheader {
     pub(crate) vbegin: u64,
     pub(crate) vend: u64,
 
-    pub(crate) data_begin: u64,
-    pub(crate) data_end: u64,
-
-    pub(crate) ref_begin: u64,
-    pub(crate) ref_end: u64,
+    pub(crate) ref_offset: u64,
 
     pub(crate) itree_idx: u32,
     pub(crate) itree_n_nodes: u32,
@@ -67,15 +63,15 @@ impl JifPheader {
     ) -> JifResult<Self> {
         let vaddr_range = (raw.vbegin, raw.vend);
 
-        let ref_range = jif
+        let ref_segment = jif
             .string_at_offset(raw.pathname_offset as usize)
-            .map(|s| (s.to_string(), raw.ref_begin, raw.ref_end));
+            .map(|s| (s.to_string(), raw.ref_offset));
 
         let itree = jif.get_itree(raw.itree_idx as usize, raw.itree_n_nodes as usize, data_map)?;
 
         Ok(JifPheader {
             vaddr_range,
-            ref_range,
+            ref_segment,
             itree,
             prot: raw.prot,
         })
@@ -97,17 +93,15 @@ impl JifPheader {
                 return Ok(());
             };
 
-        self.itree = if let Some((ref_path, ref_begin, ref_end)) = &self.ref_range {
-            let len = ref_end - ref_begin;
-
+        self.itree = if let Some((ref_path, ref_offset)) = &self.ref_segment {
             let mut file = {
                 let mut f = BufReader::new(File::open(ref_path)?);
-                f.seek(SeekFrom::Start(*ref_begin))?;
-                f.take(len)
+                f.seek(SeekFrom::Start(*ref_offset))?;
+                f
             };
 
             let base = {
-                let mut buf = Vec::with_capacity(len as usize);
+                let mut buf = Vec::new();
                 file.read_to_end(&mut buf)?;
 
                 let delta_to_page = page_align(buf.len() as u64) as usize - buf.len();
@@ -127,7 +121,7 @@ impl JifPheader {
 
     /// Rename the file in this pheader if 1) it has a file and 2) it matches the name
     pub fn rename_file(&mut self, old: &str, new: &str) {
-        if let Some((ref mut path, _, _)) = self.ref_range {
+        if let Some((ref mut path, _)) = self.ref_segment {
             if path == old {
                 *path = new.to_string();
             }
@@ -146,14 +140,12 @@ impl JifPheader {
 
     /// The pathname of the reference section
     pub fn pathname(&self) -> Option<&str> {
-        self.ref_range.as_ref().map(|(s, _, _)| s.as_str())
+        self.ref_segment.as_ref().map(|(s, _)| s.as_str())
     }
 
     /// The offset range into the referenced file which is used to map the file data into this vma
-    pub fn ref_range(&self) -> Option<(u64, u64)> {
-        self.ref_range
-            .as_ref()
-            .map(|(_, begin, end)| (*begin, *end))
+    pub fn ref_offset(&self) -> Option<u64> {
+        self.ref_segment.as_ref().map(|(_, offset)| *offset)
     }
 
     /// The interval tree which encodes the data source of each page
@@ -183,11 +175,11 @@ impl JifPheader {
 
     /// Number of pages coming from the reference file
     pub fn shared_pages(&self) -> usize {
-        self.ref_range()
-            .map(|(start, end)| {
-                let shared_len = end - start;
+        self.ref_segment
+            .as_ref()
+            .map(|_| {
                 self.itree
-                    .not_mapped_subregion_size(self.vaddr_range.0, self.vaddr_range.0 + shared_len)
+                    .not_mapped_subregion_size(self.vaddr_range.0, self.vaddr_range.1)
             })
             .unwrap_or(0)
             / PAGE_SIZE
@@ -208,7 +200,7 @@ impl JifPheader {
 impl JifRawPheader {
     /// Serialized size of the raw JIF Pheader
     pub const fn serialized_size() -> usize {
-        6 * std::mem::size_of::<u64>() + 3 * std::mem::size_of::<u32>() + std::mem::size_of::<u8>()
+        3 * std::mem::size_of::<u64>() + 3 * std::mem::size_of::<u32>() + std::mem::size_of::<u8>()
     }
 
     /// Reconstruct the pheader from its materialized counterpart
@@ -221,18 +213,14 @@ impl JifRawPheader {
     ) -> JifRawPheader {
         let (vbegin, vend) = jif.vaddr_range;
 
-        let data_begin = 0;
-        let data_end = 0;
-
-        let (ref_begin, ref_end, pathname_offset) = if let Some((name, begin, end)) = jif.ref_range
-        {
-            let offset = string_map
+        let (ref_offset, pathname_offset) = if let Some((name, offset)) = jif.ref_segment {
+            let pathname_offset = string_map
                 .get(&name)
-                .map(|offset| *offset as u32)
+                .map(|path_offset| *path_offset as u32)
                 .unwrap_or(u32::MAX);
-            (begin, end, offset)
+            (offset, pathname_offset)
         } else {
-            (u64::MAX, u64::MAX, u32::MAX)
+            (u64::MAX, u32::MAX)
         };
 
         let (itree_idx, itree_n_nodes) = {
@@ -251,10 +239,7 @@ impl JifRawPheader {
         JifRawPheader {
             vbegin,
             vend,
-            data_begin,
-            data_end,
-            ref_begin,
-            ref_end,
+            ref_offset,
             itree_idx,
             itree_n_nodes,
             pathname_offset,
@@ -267,19 +252,14 @@ impl JifRawPheader {
         (self.vbegin, self.vend)
     }
 
-    /// The offset range into the JIF for the pheader data
-    pub fn data_range(&self) -> (u64, u64) {
-        (self.data_begin, self.data_end)
-    }
-
     /// The offset into the string table
     pub fn pathname_offset(&self) -> Option<u32> {
         (self.pathname_offset != u32::MAX).then_some(self.pathname_offset)
     }
 
     /// The offset range into the referenced file
-    pub fn ref_range(&self) -> Option<(u64, u64)> {
-        (self.ref_begin != u64::MAX).then_some((self.ref_begin, self.ref_end))
+    pub fn ref_offset(&self) -> Option<u64> {
+        (self.ref_offset != u64::MAX).then_some(self.ref_offset)
     }
 
     /// The `(index, len)` span of the itree nodes (into the itree node table)
@@ -307,11 +287,8 @@ impl std::fmt::Debug for JifPheader {
                 &format!("{:#x} B", self.private_pages() * PAGE_SIZE),
             );
 
-        if let Some((path, start, end)) = &self.ref_range {
-            dbg_struct.field(
-                "ref",
-                &format!("[{:#x}, {:#x}) (path: {})", start, end, path),
-            );
+        if let Some((path, offset)) = &self.ref_segment {
+            dbg_struct.field("ref", &format!("reference {}[{:#x}..]", path, offset));
         }
 
         dbg_struct.field("itree", &self.itree);
@@ -346,22 +323,17 @@ impl std::fmt::Debug for JifRawPheader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut dbg_struct = f.debug_struct("JifPheader");
 
-        dbg_struct
-            .field(
-                "virtual_area",
-                &format!("[{:#x}, {:#x})", self.vbegin, self.vend),
-            )
-            .field(
-                "data",
-                &format!("[{:#x}, {:#x})", self.data_begin, self.data_end),
-            );
+        dbg_struct.field(
+            "virtual_area",
+            &format!("[{:#x}, {:#x})", self.vbegin, self.vend),
+        );
 
-        if self.ref_begin != u64::MAX {
+        if self.ref_offset != u64::MAX {
             dbg_struct.field(
                 "ref",
                 &format!(
-                    "[{:#x}, {:#x}) (path_offset: {:#x})",
-                    self.ref_begin, self.ref_end, self.pathname_offset
+                    "reference (path_offset: {:#x}), starting at {:#x}",
+                    self.pathname_offset, self.ref_offset
                 ),
             );
         }

@@ -26,8 +26,7 @@
 //! - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
 //! - `pheader.data_size`: size of the data region (mixable with range and other selectors)
 //! - `pheader.pathname`: reference pathname (mixable with range and other selectors)
-//! - `pheader.ref_range`: reference range in the path (mixable with range and other selectors)
-//! - `pheader.ref_size`: size of the reference range (mixable with range and other selectors)
+//! - `pheader.ref_offset`: offset into the file
 //! - `pheader.virtual_range`: virtual address range of the pheader (mixable with range and other selectors)
 //! - `pheader.virtual_size`: size of the virtual address range (mixable with range and other selectors)
 //! - `pheader.prot`: area `rwx` protections (mixable with range and other selectors)
@@ -54,11 +53,8 @@
 //! - `pheader`: select all the pheaders
 //! - `pheader[<range>]`: select the pheaders in the range
 //! - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
-//! - `pheader.data_range`: data range of the pheaders (mixable with range and other selectors)
-//! - `pheader.data_size`: size of the data range (mixable with range and other selectors)
 //! - `pheader.pathname_offset`: reference pathname (mixable with range and other selectors)
-//! - `pheader.ref_range`: reference range in the path (mixable with range and other selectors)
-//! - `pheader.ref_size`: size of the reference range (mixable with range and other selectors)
+//! - `pheader.ref_offset`: offset into the file
 //! - `pheader.virtual_range`: virtual address range of the pheader (mixable with range and other selectors)
 //! - `pheader.virtual_size`: size of the virtual address range (mixable with range and other selectors)
 //! - `pheader.prot`: area `rwx` protections (mixable with range and other selectors)
@@ -223,27 +219,14 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                             let (start, end) = pheader.virtual_range();
                             print!("virtual_size: {:#x} B, ", end - start);
                         }
-                        if selector.data_range {
-                            let (start, end) = pheader.data_range();
-                            print!("data_range: [{:#x}; {:#x}), ", start, end);
-                        }
-                        if selector.data_size {
-                            let (start, end) = pheader.data_range();
-                            print!("data_size: {:#x} B, ", end - start);
-                        }
                         if selector.pathname_offset {
                             if let Some(offset) = pheader.pathname_offset() {
                                 print!("pathname_offset: {:#x}, ", offset);
                             }
                         }
-                        if selector.ref_range {
-                            if let Some((start, end)) = pheader.ref_range() {
-                                print!("ref_range: [{:#x}; {:#x}), ", start, end);
-                            }
-                        }
-                        if selector.ref_size {
-                            if let Some((start, end)) = pheader.ref_range() {
-                                print!("ref_size: {:#x} B, ", end - start);
+                        if selector.ref_offset {
+                            if let Some(offset) = pheader.ref_offset() {
+                                print!("ref_offset: {:#x}, ", offset);
                             }
                         }
                         if selector.prot {
@@ -391,16 +374,12 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                                 print!("path: {}, ", s);
                             }
                         }
-                        if selector.ref_range {
-                            if let Some((start, end)) = pheader.ref_range() {
-                                print!("ref_range: [{:#x}; {:#x}), ", start, end);
+                        if selector.ref_offset {
+                            if let Some(offset) = pheader.ref_offset() {
+                                print!("ref_offset: {:#x}, ", offset);
                             }
                         }
-                        if selector.ref_size {
-                            if let Some((start, end)) = pheader.ref_range() {
-                                print!("ref_size: {:#x} B, ", end - start);
-                            }
-                        }
+
                         if selector.prot {
                             let prot = pheader.prot();
                             print!(

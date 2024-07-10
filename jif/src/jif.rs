@@ -54,7 +54,7 @@ impl Jif {
             let mut map = BTreeMap::new();
             let mut data_segments = raw.take_data();
             for interval in intervals {
-                let data = data_segments.split_off(interval.offset as usize);
+                let data = data_segments.split_off((interval.offset - raw.data_offset) as usize);
                 if data.len() < interval.len() as usize {
                     return Err(JifError::DataSegmentNotFound {
                         data_range: (interval.offset, interval.offset + interval.len()),
@@ -84,7 +84,7 @@ impl Jif {
     pub fn strings(&self) -> HashSet<&str> {
         self.pheaders
             .iter()
-            .filter_map(|phdr| phdr.ref_range.as_ref().map(|(s, _, _)| s.as_str()))
+            .filter_map(|phdr| phdr.ref_segment.as_ref().map(|(s, _)| s.as_str()))
             .collect()
     }
 
@@ -219,7 +219,7 @@ impl JifRaw {
             let strings = jif
                 .pheaders
                 .iter()
-                .filter_map(|phdr| phdr.ref_range.clone().map(|s| s.0.clone()))
+                .filter_map(|phdr| phdr.ref_segment.as_ref().map(|(s, _)| s.clone()))
                 .collect::<HashSet<_>>();
 
             let mut offset = 0;

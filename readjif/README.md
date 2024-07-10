@@ -29,8 +29,7 @@ For materialized JIFs, the API is the following:
 - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
 - `pheader.data_size`: size of the data region (mixable with range and other selectors)
 - `pheader.pathname`: reference pathname (mixable with range and other selectors)
-- `pheader.ref_range`: reference range in the path (mixable with range and other selectors)
-- `pheader.ref_size`: size of the reference range (mixable with range and other selectors)
+- `pheader.ref_offset`: offset into the file
 - `pheader.virtual_range`: virtual address range of the pheader (mixable with range and other selectors)
 - `pheader.virtual_size`: size of the virtual address range (mixable with range and other selectors)
 - `pheader.prot`: area `rwx` protections (mixable with range and other selectors)
@@ -59,16 +58,12 @@ For raw JIFs, the API is similar:
 - `pheader`: select all the pheaders
 - `pheader[<range>]`: select the pheaders in the range
 - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
-- `pheader.data_range`: data range of the pheaders (mixable with range and other selectors)
-- `pheader.data_size`: size of the data range (mixable with range and other selectors)
 - `pheader.pathname_offset`: reference pathname (mixable with range and other selectors)
-- `pheader.ref_range`: reference range in the path (mixable with range and other selectors)
-- `pheader.ref_size`: size of the reference range (mixable with range and other selectors)
+- `pheader.ref_offset`: offset into the file
 - `pheader.virtual_range`: virtual address range of the pheader (mixable with range and other selectors)
 - `pheader.virtual_size`: size of the virtual address range (mixable with range and other selectors)
 - `pheader.prot`: area `rwx` protections (mixable with range and other selectors)
 - `pheader.itree`: show the interval tree offset and size in number of nodes (mixable with range and other selectors)
-- `pheader.zero_pages`: number of zero pages
 
 ## Usage
 
@@ -121,8 +116,7 @@ pheader[<range>]                   select the pheaders in the range
 pheader.len                        number of pheaders
 pheader.data_size                  size of the data region (mixable with range and other selectors)
 pheader.pathname                   reference pathname (mixable with range and other selectors)
-pheader.ref_range                  reference range in the path (mixable with range and other selectors)
-pheader.ref_size                   size of the reference range (mixable with range and other selectors)
+pheader.ref_offset                 offset into the file
 pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
 pheader.virtual_size               size of the virtual address range (mixable with range and other selectors)
 pheader.prot                       area `rwx` protections (mixable with range and other selectors)
@@ -158,14 +152,10 @@ ord.len                            number of ord chunks
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
 pheader.len                        number of pheaders
-pheader.data_range                 data range of the pheaders (mixable with range and other selectors)
-pheader.data_size                  size of the data range (mixable with range and other selectors)
 pheader.pathname_offset            reference pathname (mixable with range and other selectors)
-pheader.ref_range                  reference range in the path (mixable with range and other selectors)
-pheader.ref_size                   size of the reference range (mixable with range and other selectors)
+pheader.ref_offset                 offset into the file
 pheader.virtual_range              virtual address range of the pheader (mixable with range and other selectors)
 pheader.virtual_size               size of the virtual address range (mixable with range and other selectors)
 pheader.prot                       area `rwx` protections (mixable with range and other selectors)
 pheader.itree                      show the interval tree offset and size in number of nodes (mixable with range and other selectors)
-pheader.zero_pages                 number of zero pages
 ```

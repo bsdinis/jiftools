@@ -4,28 +4,27 @@ use crate::utils::{is_page_aligned, page_align_down, PAGE_SIZE};
 /// An ordering chunk represents a range of pages to pre-fault
 #[derive(Debug, Default)]
 pub struct OrdChunk {
-    /// first 42 bits encode the page number of the first page
+    /// Page number of the first page
     pub(crate) vaddr: u64,
 
-    /// last 12 bits encode the number of pages
-    pub(crate) n_pages: u16,
+    /// Number of pages
+    pub(crate) n_pages: u64,
 }
 
 impl OrdChunk {
     pub(crate) const fn serialized_size() -> usize {
-        std::mem::size_of::<u64>()
+        2 * std::mem::size_of::<u64>()
     }
 
     /// Create a new ordering chunk
     ///
-    /// Will silently clamp both the `vaddr` and the number of pages
-    /// so they meet the requirements of the type
-    pub fn new(vaddr: u64, n_pages: u16) -> Self {
+    /// Will silently clamp the `vaddr`
+    pub fn new(vaddr: u64, n_pages: u64) -> Self {
         OrdChunk {
             vaddr: page_align_down(vaddr),
 
             // n pages needs to fit in 12 bits
-            n_pages: std::cmp::min(n_pages, (1 << 12) - 1),
+            n_pages,
         }
     }
 
@@ -37,7 +36,7 @@ impl OrdChunk {
     /// The address of the last page in the ordering chunk
     pub fn last_page_addr(&self) -> u64 {
         if self.n_pages > 1 {
-            self.vaddr + (self.n_pages - 1) as u64 * PAGE_SIZE as u64
+            self.vaddr + (self.n_pages - 1) * PAGE_SIZE as u64
         } else {
             self.vaddr
         }
@@ -67,14 +66,12 @@ impl OrdChunk {
             self.vaddr = vaddr;
             self.n_pages += 1;
             true
-        } else if vaddr == self.vaddr + (self.n_pages as u64 * PAGE_SIZE as u64) {
+        } else if vaddr == self.vaddr + (self.n_pages * PAGE_SIZE as u64) {
             // if the page is immediately after the ordering chunk
 
             self.n_pages += 1;
             true
-        } else if self.vaddr <= vaddr
-            && vaddr < self.vaddr + (self.n_pages as u64 * PAGE_SIZE as u64)
-        {
+        } else if self.vaddr <= vaddr && vaddr < self.vaddr + (self.n_pages * PAGE_SIZE as u64) {
             // if the page is already in the ordering chunk
 
             true
