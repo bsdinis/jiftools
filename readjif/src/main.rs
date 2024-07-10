@@ -384,7 +384,7 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                             print!("virtual_size: {:#x} B, ", end - start);
                         }
                         if selector.data_size {
-                            print!("data: {:#x} B, ", pheader.data().len());
+                            print!("data: {:#x} B, ", pheader.data_size());
                         }
                         if selector.pathname {
                             if let Some(s) = pheader.pathname() {
@@ -423,14 +423,10 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                             )
                         }
                         if selector.itree {
-                            if let Some(it) = pheader.itree() {
-                                print!("itree: {:?}, ", it);
-                            }
+                            print!("itree: {:?}, ", pheader.itree());
                         }
                         if selector.n_itree_nodes {
-                            if let Some(it) = pheader.itree() {
-                                print!("n_itree_nodes: {:?}, ", it.n_nodes());
-                            }
+                            print!("n_itree_nodes: {:?}, ", pheader.itree().n_nodes());
                         }
                         if selector.zero_pages {
                             print!("zero_pages: {}, ", pheader.zero_pages())

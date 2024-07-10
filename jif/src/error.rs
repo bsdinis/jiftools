@@ -40,6 +40,18 @@ pub enum JifError {
         virtual_range: (u64, u64),
     },
 
+    /// Could not find an itree
+    ITreeNotFound {
+        /// itree index
+        index: usize,
+
+        /// itree len
+        len: usize,
+
+        /// number of nodes in the JIF
+        n_nodes: usize,
+    },
+
     /// A requested ordering address is not mapped by this JIF
     UnmappedOrderingAddr(u64),
 }
@@ -126,6 +138,14 @@ impl std::fmt::Display for JifError {
                 "could not find full data segment at [{:#x}; {:#x}) for pheader at [{:#x}; {:#x})",
                 data_range.0, data_range.1, virtual_range.0, virtual_range.1
             )),
+            JifError::ITreeNotFound {
+                index,
+                len,
+                n_nodes,
+            } => f.write_fmt(format_args!(
+                "could not find full interval tree at [{}; {}) (there are only {} itree nodes)",
+                index, len, n_nodes
+            )),
             JifError::UnmappedOrderingAddr(addr) => f.write_fmt(format_args!(
                 "cannot insert addr {:#x} into ordering info: addr is not mapped by any pheader",
                 addr
@@ -144,6 +164,7 @@ impl std::error::Error for JifError {
             JifError::BadPheader { pheader_err, .. } => Some(pheader_err),
             JifError::BadITreeNode { itree_node_err, .. } => Some(itree_node_err),
             JifError::DataSegmentNotFound { .. } => None,
+            JifError::ITreeNotFound { .. } => None,
             JifError::UnmappedOrderingAddr(_) => None,
         }
     }

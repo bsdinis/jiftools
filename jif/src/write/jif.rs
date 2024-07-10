@@ -1,7 +1,8 @@
+use crate::error::*;
+use crate::itree_node::RawITreeNode;
 use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
 use crate::ord::OrdChunk;
 use crate::utils::{is_page_aligned, page_align, PAGE_SIZE};
-use crate::{error::*, ITreeNode};
 
 use std::io::Write;
 
@@ -27,7 +28,7 @@ impl JifRaw {
         let n_pheaders = self.pheaders.len() as u32;
         let strings_size = page_align(self.strings_backing.len() as u64) as u32;
         let itrees_size =
-            page_align((self.itree_nodes.len() * ITreeNode::serialized_size()) as u64) as u32;
+            page_align((self.itree_nodes.len() * RawITreeNode::serialized_size()) as u64) as u32;
         let ord_size =
             page_align((self.ord_chunks.len() * OrdChunk::serialized_size()) as u64) as u32;
 

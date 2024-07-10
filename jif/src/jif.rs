@@ -1,5 +1,6 @@
 use crate::error::*;
-use crate::itree::{ITree, ITreeNode};
+use crate::itree::ITree;
+use crate::itree_node::{ITreeNode, RawITreeNode};
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::page_align;
@@ -26,7 +27,7 @@ pub struct Jif {
 pub struct JifRaw {
     pub(crate) pheaders: Vec<JifRawPheader>,
     pub(crate) strings_backing: Vec<u8>,
-    pub(crate) itree_nodes: Vec<ITreeNode>,
+    pub(crate) itree_nodes: Vec<RawITreeNode>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
     pub(crate) data_offset: u64,
     pub(crate) data_segments: Vec<u8>,
@@ -35,14 +36,42 @@ pub struct JifRaw {
 impl Jif {
     /// Materialize a `Jif` from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
-        // sort by reverse order of data_begin
-        raw.pheaders.sort_by(|a, b| b.data_begin.cmp(&a.data_begin));
+        fn construct_data_map(raw: &mut JifRaw) -> JifResult<BTreeMap<u64, Vec<u8>>> {
+            let intervals = {
+                let mut is = raw
+                    .itree_nodes
+                    .iter()
+                    .flat_map(|node| node.ranges().iter().filter(|i| i.is_data()))
+                    .cloned()
+                    .collect::<Vec<_>>();
 
-        let mut data_segments = raw.take_data();
+                // order by descending order of offsets
+                is.sort_by(|i1, i2| i2.offset.cmp(&i1.offset));
+
+                is
+            };
+
+            let mut map = BTreeMap::new();
+            let mut data_segments = raw.take_data();
+            for interval in intervals {
+                let data = data_segments.split_off(interval.offset as usize);
+                if data.len() < interval.len() as usize {
+                    return Err(JifError::DataSegmentNotFound {
+                        data_range: (interval.offset, interval.offset + interval.len()),
+                        virtual_range: (interval.start, interval.end),
+                    });
+                }
+                map.insert(interval.start, data);
+            }
+
+            Ok(map)
+        }
+
+        let mut data_map = construct_data_map(&mut raw)?;
         let pheaders = raw
             .pheaders
             .iter()
-            .map(|raw_pheader| JifPheader::from_raw(&raw, raw_pheader, &mut data_segments))
+            .map(|raw_pheader| JifPheader::from_raw(&raw, raw_pheader, &mut data_map))
             .collect::<Result<Vec<JifPheader>, _>>()?;
 
         Ok(Jif {
@@ -89,9 +118,9 @@ impl Jif {
         let itree_size = self
             .pheaders
             .iter()
-            .filter_map(|phdr| phdr.itree.as_ref().map(|itree| itree.n_nodes()))
+            .map(|phdr| phdr.itree.n_nodes())
             .sum::<usize>()
-            * ITreeNode::serialized_size();
+            * RawITreeNode::serialized_size();
 
         let ord_size = self.ord_chunks.len() * OrdChunk::serialized_size();
 
@@ -141,6 +170,11 @@ impl Jif {
     /// Access the pheaders
     pub fn pheaders(&self) -> &[JifPheader] {
         &self.pheaders
+    }
+
+    /// Stored data size in B
+    pub fn date_size(&self) -> usize {
+        self.pheaders.iter().map(|phdr| phdr.data_size()).sum()
     }
 
     /// Access the ordering list
@@ -200,9 +234,7 @@ impl JifRaw {
         };
 
         let data_offset = jif.data_offset();
-
         let mut itree_nodes = Vec::new();
-        let mut data_cursor = jif.data_offset();
         let mut data_segments = Vec::new();
         let pheaders = jif
             .pheaders
@@ -212,7 +244,7 @@ impl JifRaw {
                     phdr,
                     &string_map,
                     &mut itree_nodes,
-                    &mut data_cursor,
+                    data_offset,
                     &mut data_segments,
                 )
             })
@@ -268,7 +300,7 @@ impl JifRaw {
     }
 
     /// Access the interval tree node list
-    pub fn itree_nodes(&self) -> &[ITreeNode] {
+    pub fn itree_nodes(&self) -> &[RawITreeNode] {
         &self.itree_nodes
     }
 
@@ -307,9 +339,18 @@ impl JifRaw {
     }
 
     /// Get an interval tree from an (index, len) range
-    pub(crate) fn get_itree(&self, index: usize, n: usize) -> Option<ITree> {
+    pub(crate) fn get_itree(
+        &self,
+        index: usize,
+        n: usize,
+        data_map: &mut BTreeMap<u64, Vec<u8>>,
+    ) -> JifResult<ITree> {
         if index.saturating_add(n) > self.itree_nodes.len() {
-            return None;
+            return Err(JifError::ITreeNotFound {
+                index,
+                len: n,
+                n_nodes: self.itree_nodes.len(),
+            });
         }
 
         let nodes = self
@@ -317,10 +358,10 @@ impl JifRaw {
             .iter()
             .skip(index)
             .take(n)
-            .cloned()
+            .map(|raw| ITreeNode::from_raw(raw, data_map))
             .collect::<Vec<_>>();
 
-        Some(ITree::new(nodes))
+        Ok(ITree::new(nodes))
     }
 }
 

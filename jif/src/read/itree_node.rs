@@ -1,23 +1,23 @@
 use crate::error::*;
-use crate::itree::{ITreeNode, Interval, IVAL_PER_NODE};
+use crate::itree_node::{RawITreeNode, RawInterval, IVAL_PER_NODE};
 
 use crate::utils::{is_page_aligned, read_u64};
 use std::io::Read;
 
-impl ITreeNode {
-    /// Read and parse an ITreeNode
+impl RawITreeNode {
+    /// Read and parse an RawITreeNode
     pub fn from_reader<R: Read>(r: &mut R, itree_node_idx: usize) -> JifResult<Self> {
-        let mut ranges = [Interval::default(); IVAL_PER_NODE];
+        let mut ranges = [RawInterval::default(); IVAL_PER_NODE];
         for (idx, interval) in ranges.iter_mut().enumerate() {
-            *interval = Interval::from_reader(r, itree_node_idx, idx)?;
+            *interval = RawInterval::from_reader(r, itree_node_idx, idx)?;
         }
 
-        Ok(ITreeNode::new(ranges))
+        Ok(RawITreeNode::new(ranges))
     }
 }
 
-impl Interval {
-    /// Read and parse an Interval
+impl RawInterval {
+    /// Read and parse a RawInterval
     pub fn from_reader<R: Read>(
         r: &mut R,
         itree_node_idx: usize,
@@ -58,7 +58,7 @@ impl Interval {
         if start == u64::MAX || end == u64::MAX {
             if start == end && offset == u64::MAX {
                 // this is a default Interval
-                return Ok(Interval::default());
+                return Ok(RawInterval::default());
             } else {
                 return Err(JifError::BadITreeNode {
                     itree_node_idx,
@@ -80,6 +80,6 @@ impl Interval {
             });
         }
 
-        Ok(Interval::new(start, end, offset))
+        Ok(RawInterval::new(start, end, offset))
     }
 }

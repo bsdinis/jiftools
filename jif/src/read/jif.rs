@@ -1,5 +1,5 @@
 use crate::error::*;
-use crate::itree::ITreeNode;
+use crate::itree_node::RawITreeNode;
 use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
 use crate::ord::OrdChunk;
 use crate::pheader::JifRawPheader;
@@ -57,9 +57,9 @@ impl JifRaw {
 
         // read itree nodes
         let to_skip =
-            header.itrees_size as i64 - (n_itree_nodes * ITreeNode::serialized_size()) as i64;
+            header.itrees_size as i64 - (n_itree_nodes * RawITreeNode::serialized_size()) as i64;
         let itree_nodes = (0..n_itree_nodes)
-            .map(|idx| ITreeNode::from_reader(r, idx))
+            .map(|idx| RawITreeNode::from_reader(r, idx))
             .collect::<Result<Vec<_>, _>>()?;
         r.seek_relative(to_skip)?;
 

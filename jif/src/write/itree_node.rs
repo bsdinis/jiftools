@@ -1,9 +1,9 @@
 use crate::error::*;
-use crate::itree::{ITreeNode, Interval};
+use crate::itree_node::{RawITreeNode, RawInterval};
 
 use std::io::Write;
 
-impl ITreeNode {
+impl RawITreeNode {
     /// Write an interval tree node
     pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
         let mut written = 0;
@@ -15,12 +15,12 @@ impl ITreeNode {
     }
 }
 
-impl Interval {
+impl RawInterval {
     /// Write an interval
-    pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
+    pub fn to_writer<W: Write>(self, w: &mut W) -> JifResult<usize> {
         w.write_all(&self.start.to_le_bytes())?;
         w.write_all(&self.end.to_le_bytes())?;
         w.write_all(&self.offset.to_le_bytes())?;
-        Ok(Interval::serialized_size())
+        Ok(RawInterval::serialized_size())
     }
 }
