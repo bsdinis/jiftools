@@ -1,5 +1,7 @@
 **/target
 Cargo.lock
-*.jif
-*.ord
+**/*.jif
+**/*.svg
+**/*.ord
+**/perf.data*
 .envrc
