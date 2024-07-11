@@ -99,8 +99,27 @@ impl JifRaw {
             }
         }
 
-        w.write_all(&self.data_segments)?;
-        cursor += self.data_segments.len();
+        let mut written = 0;
+        for ((start, end), data) in self.data_segments.iter() {
+            while written < *start {
+                eprintln!(
+                    "WARN: cursor ({:#x}) is behind the requested range to write [{:#x}, {:#x})",
+                    self.data_offset + written,
+                    self.data_offset + start,
+                    self.data_offset + end
+                );
+                let page = [0u8; PAGE_SIZE];
+                let to_write = std::cmp::min(PAGE_SIZE, (start - written) as usize);
+                w.write_all(&page[..to_write])?;
+                written += to_write as u64;
+            }
+
+            let len = data.len() as u64;
+            assert_eq!(len, end - start, "length does not match the range");
+            w.write_all(&data)?;
+            written += len;
+        }
+        cursor += written as usize;
         Ok(cursor)
     }
 }

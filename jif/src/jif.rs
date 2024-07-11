@@ -1,6 +1,6 @@
 use crate::error::*;
 use crate::itree::ITree;
-use crate::itree_node::{ITreeNode, RawITreeNode, RawInterval};
+use crate::itree_node::{ITreeNode, RawITreeNode};
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::page_align;
@@ -8,6 +8,7 @@ use crate::utils::page_align;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
 use std::str::from_utf8;
+use std::u64;
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
 
@@ -30,58 +31,13 @@ pub struct JifRaw {
     pub(crate) itree_nodes: Vec<RawITreeNode>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
     pub(crate) data_offset: u64,
-    pub(crate) data_segments: Vec<u8>,
+    pub(crate) data_segments: BTreeMap<(u64, u64), Vec<u8>>,
 }
 
 impl Jif {
     /// Materialize a `Jif` from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
-        fn construct_data_map(raw: &mut JifRaw) -> JifResult<BTreeMap<u64, Vec<u8>>> {
-            /// assert that the intervals refer to non-intersecting data
-            /// assumes that intervals is sorted by reverse order of offset
-            fn assert_non_intersecting_data(intervals: &[RawInterval]) {
-                let map_interval = |i: &RawInterval| (i.offset, i.offset + i.len());
-                intervals
-                    .iter()
-                    .rev()
-                    .map(map_interval)
-                    .zip(intervals.iter().rev().map(map_interval).skip(1))
-                    .for_each(|(i1, i2)| debug_assert!(i1.1 <= i2.0))
-            }
-
-            let intervals = {
-                let mut is = raw
-                    .itree_nodes
-                    .iter()
-                    .flat_map(|node| node.ranges().iter().filter(|i| i.is_data()))
-                    .cloned()
-                    .collect::<Vec<_>>();
-
-                // order by descending order of offsets
-                is.sort_by(|i1, i2| i2.offset.cmp(&i1.offset));
-
-                is
-            };
-
-            assert_non_intersecting_data(&intervals);
-            let mut map = BTreeMap::new();
-            let mut data_segments = raw.take_data();
-            for interval in intervals {
-                let data = data_segments.split_off((interval.offset - raw.data_offset) as usize);
-                if data.len() < interval.len() as usize {
-                    return Err(JifError::DataSegmentNotFound {
-                        data_range: (interval.offset, interval.offset + interval.len()),
-                        virtual_range: (interval.start, interval.end),
-                        found_len: data.len(),
-                    });
-                }
-                map.insert(interval.start, data);
-            }
-
-            Ok(map)
-        }
-
-        let mut data_map = construct_data_map(&mut raw)?;
+        let mut data_map = raw.take_data();
         let pheaders = raw
             .pheaders
             .iter()
@@ -248,8 +204,9 @@ impl JifRaw {
         };
 
         let data_offset = jif.data_offset();
+        let mut data_size = 0;
         let mut itree_nodes = Vec::new();
-        let mut data_segments = Vec::new();
+        let mut data_segments = BTreeMap::new();
         let pheaders = jif
             .pheaders
             .into_iter()
@@ -259,6 +216,7 @@ impl JifRaw {
                     &string_map,
                     &mut itree_nodes,
                     data_offset,
+                    &mut data_size,
                     &mut data_segments,
                 )
             })
@@ -296,11 +254,8 @@ impl JifRaw {
     }
 
     /// Remove the data from the raw JIF file
-    pub fn take_data(&mut self) -> Vec<u8> {
-        if self.data_segments.is_empty() {
-            return Vec::new();
-        }
-        self.data_segments.split_off(0)
+    pub fn take_data(&mut self) -> BTreeMap<(u64, u64), Vec<u8>> {
+        self.data_segments.split_off(&(0, 0))
     }
 
     /// Access the pheaders
@@ -318,9 +273,9 @@ impl JifRaw {
         &self.itree_nodes
     }
 
-    /// Access the data segments
-    pub fn data(&self) -> &[u8] {
-        &self.data_segments
+    /// Report the number of stored bytes
+    pub fn data_size(&self) -> usize {
+        self.data_segments.values().map(Vec::len).sum()
     }
 
     /// Access the string table
@@ -359,7 +314,7 @@ impl JifRaw {
         n: usize,
         virtual_range: (u64, u64),
         has_reference: bool,
-        data_map: &mut BTreeMap<u64, Vec<u8>>,
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
     ) -> JifResult<ITree> {
         if index.saturating_add(n) > self.itree_nodes.len() {
             return Err(JifError::ITreeNotFound {
@@ -374,7 +329,7 @@ impl JifRaw {
             .iter()
             .skip(index)
             .take(n)
-            .map(|raw| ITreeNode::from_raw(raw, data_map))
+            .map(|raw| ITreeNode::from_raw(raw, self.data_offset, data_map))
             .collect::<Vec<_>>();
 
         ITree::new(nodes, virtual_range, has_reference)
@@ -403,7 +358,7 @@ impl std::fmt::Debug for JifRaw {
                 &format!(
                     "[{:#x}; {:#x})",
                     self.data_offset,
-                    self.data_offset as usize + self.data_segments.len()
+                    self.data_offset as usize + self.data_size()
                 ),
             )
             .finish()

@@ -5,6 +5,7 @@ use crate::ord::OrdChunk;
 use crate::pheader::JifRawPheader;
 use crate::utils::{is_page_aligned, read_u32, seek_to_page};
 
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 
 impl JifRaw {
@@ -63,6 +64,7 @@ impl JifRaw {
             .collect::<Result<Vec<_>, _>>()?;
         r.seek_relative(to_skip)?;
 
+        // read ord segments
         let n_ords = header.ord_size as usize / OrdChunk::serialized_size();
         let ord_chunks = (0..n_ords)
             .map(|idx| OrdChunk::from_reader(r, idx))
@@ -71,11 +73,40 @@ impl JifRaw {
 
         let data_offset = seek_to_page(r)?;
 
+        // read data segments
         let data_segments = {
-            let mut ds = Vec::new();
-            r.read_to_end(&mut ds)?;
+            let data_offset_intervals = {
+                let mut ival = itree_nodes
+                    .iter()
+                    .flat_map(|n| n.ranges.iter())
+                    .filter(|i| i.is_data())
+                    .map(|i| (i.offset - data_offset, i.len()))
+                    .collect::<Vec<_>>();
+                ival.sort();
+                ival
+            };
 
-            Ok::<_, JifError>(ds)
+            let mut cur_offset = 0;
+            let mut map = BTreeMap::new();
+            for (offset, len) in data_offset_intervals {
+                if offset < cur_offset {
+                    eprintln!("WARN: skipping over {:#x} B", cur_offset - offset);
+                    r.seek_relative((cur_offset - offset) as i64)?;
+                    cur_offset = offset;
+                }
+
+                let data = {
+                    let mut d = Vec::new();
+                    let mut reader = r.take(len);
+                    reader.read_to_end(&mut d)?;
+                    cur_offset += len;
+                    Ok::<Vec<_>, std::io::Error>(d)
+                }?;
+
+                map.insert((offset, offset + len), data);
+            }
+
+            Ok::<_, JifError>(map)
         }?;
 
         Ok(JifRaw {

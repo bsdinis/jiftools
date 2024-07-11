@@ -100,7 +100,7 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
     match cmd {
         RawCommand::Jif(j) => match j {
             RawJifCmd::All => println!("{:#x?}", jif),
-            RawJifCmd::Data => println!("data section: {:#x} B", jif.data().len()),
+            RawJifCmd::Data => println!("data section: {:#x} B", jif.data_size()),
         },
         RawCommand::Strings => {
             for s in jif.strings().iter() {

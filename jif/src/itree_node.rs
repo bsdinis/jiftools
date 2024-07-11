@@ -16,7 +16,7 @@ pub struct ITreeNode {
 /// Encodes a series of raw intervals
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct RawITreeNode {
-    ranges: [RawInterval; IVAL_PER_NODE],
+    pub(crate) ranges: [RawInterval; IVAL_PER_NODE],
 }
 
 /// Data resolved by an interval
@@ -52,10 +52,14 @@ pub struct RawInterval {
 
 impl ITreeNode {
     /// Build an `ITreeNode`
-    pub(crate) fn from_raw(raw: &RawITreeNode, data_map: &mut BTreeMap<u64, Vec<u8>>) -> Self {
+    pub(crate) fn from_raw(
+        raw: &RawITreeNode,
+        data_offset: u64,
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+    ) -> Self {
         let mut node = ITreeNode::default();
         for (raw_interval, interval) in raw.ranges.iter().zip(node.ranges.iter_mut()) {
-            *interval = Interval::from_raw(raw_interval, data_map);
+            *interval = Interval::from_raw(raw_interval, data_offset, data_map);
         }
         node
     }
@@ -128,10 +132,16 @@ impl RawITreeNode {
     }
 
     /// Lower an ITreeNode into a raw
-    pub(crate) fn from_materialized(node: ITreeNode, data_offset: u64, data: &mut Vec<u8>) -> Self {
+    pub(crate) fn from_materialized(
+        node: ITreeNode,
+        data_base_offset: u64,
+        data_size: &mut u64,
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+    ) -> Self {
         let mut raw = RawITreeNode::default();
         for (raw_interval, interval) in raw.ranges.iter_mut().zip(node.ranges.into_iter()) {
-            *raw_interval = RawInterval::from_materialized(interval, data_offset, data);
+            *raw_interval =
+                RawInterval::from_materialized(interval, data_base_offset, data_size, data_map);
         }
         raw
     }
@@ -149,7 +159,11 @@ impl Interval {
     }
 
     /// Construct an interval from a raw interval
-    pub(crate) fn from_raw(raw: &RawInterval, data_map: &mut BTreeMap<u64, Vec<u8>>) -> Self {
+    pub(crate) fn from_raw(
+        raw: &RawInterval,
+        data_offset: u64,
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+    ) -> Self {
         if raw.is_empty() {
             Interval::default()
         } else if raw.is_zero() {
@@ -159,8 +173,12 @@ impl Interval {
                 data: IntervalData::Zero,
             }
         } else {
+            let data_range = (
+                raw.offset - data_offset,
+                raw.offset + raw.len() - data_offset,
+            );
             let priv_data = data_map
-                .remove(&raw.start)
+                .remove(&data_range)
                 .expect("by construction, the data map should have this data");
             assert_eq!(priv_data.len(), (raw.end - raw.start) as usize);
             let data = IntervalData::Data(priv_data);
@@ -229,8 +247,9 @@ impl RawInterval {
 
     pub(crate) fn from_materialized(
         interval: Interval,
-        data_offset: u64,
-        data: &mut Vec<u8>,
+        data_base_offset: u64,
+        data_size: &mut u64,
+        data: &mut BTreeMap<(u64, u64), Vec<u8>>,
     ) -> Self {
         match interval.data {
             IntervalData::None => RawInterval::default(),
@@ -239,13 +258,15 @@ impl RawInterval {
                 end: interval.end,
                 offset: u64::MAX,
             },
-            IntervalData::Data(mut interval_data) => {
+            IntervalData::Data(interval_data) => {
                 let interval = RawInterval {
                     start: interval.start,
                     end: interval.end,
-                    offset: data_offset + data.len() as u64,
+                    offset: data_base_offset + *data_size as u64,
                 };
-                data.append(&mut interval_data);
+                let data_len = interval_data.len() as u64;
+                data.insert((*data_size, *data_size + data_len), interval_data);
+                *data_size += data_len;
                 interval
             }
         }

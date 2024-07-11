@@ -83,7 +83,16 @@ pub(crate) enum PageCmp {
 
 // ASSUMPTION: page.len() == PAGE_SIZE
 pub(crate) fn is_zero(page: &[u8]) -> bool {
-    page.iter().all(|x| *x == 0x00)
+    !(0..page.len())
+        .step_by(std::mem::size_of::<u128>())
+        .map(|x| {
+            u128::from_le_bytes(
+                page[x..(x + std::mem::size_of::<u128>())]
+                    .try_into()
+                    .unwrap(),
+            )
+        })
+        .any(|x| x != 0)
 }
 
 // ASSUMPTION: base.len() == overlay.len() == PAGE_SIZE

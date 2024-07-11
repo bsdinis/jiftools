@@ -60,7 +60,7 @@ impl JifPheader {
     pub(crate) fn from_raw(
         jif: &JifRaw,
         raw: &JifRawPheader,
-        data_map: &mut BTreeMap<u64, Vec<u8>>,
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
     ) -> JifResult<Self> {
         let vaddr_range = (raw.vbegin, raw.vend);
 
@@ -307,8 +307,9 @@ impl JifRawPheader {
         jif: JifPheader,
         string_map: &BTreeMap<String, usize>,
         itree_nodes: &mut Vec<RawITreeNode>,
-        data_offset: u64,
-        data: &mut Vec<u8>,
+        data_base_offset: u64,
+        data_size: &mut u64,
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
     ) -> JifRawPheader {
         let (vbegin, vend) = jif.vaddr_range;
 
@@ -328,7 +329,8 @@ impl JifRawPheader {
 
             itree_nodes.reserve(jif.itree.nodes.len());
             for node in jif.itree.nodes {
-                let new_node = RawITreeNode::from_materialized(node, data_offset, data);
+                let new_node =
+                    RawITreeNode::from_materialized(node, data_base_offset, data_size, data_map);
                 itree_nodes.push(new_node)
             }
 
