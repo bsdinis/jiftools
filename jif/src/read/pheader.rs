@@ -36,7 +36,7 @@ fn read_page_aligned_u64_pair<R: Read, F: FnOnce(u64, u64) -> PheaderError>(
     let begin = read_page_aligned_u64(r, buffer, false /* special value */, pheader_idx)?;
     let end = read_page_aligned_u64(r, buffer, false /* special value */, pheader_idx)?;
 
-    if begin >= end {
+    if begin > end {
         Err(JifError::BadPheader {
             pheader_idx,
             pheader_err: pheader_error_builder(begin, end),

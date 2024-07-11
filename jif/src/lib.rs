@@ -2,6 +2,7 @@
 //!
 //! `jif` is a library for parsing, dumping and manipulating JIF (Junction Image Format) files
 
+mod diff;
 pub mod error;
 mod itree;
 mod itree_node;

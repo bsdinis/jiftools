@@ -66,8 +66,13 @@ impl ITreeNode {
     }
 
     /// Count the number of (non-empty) intervals
-    pub(crate) fn n_intevals(&self) -> usize {
+    pub(crate) fn n_intervals(&self) -> usize {
         self.ranges.iter().filter(|ival| !ival.is_none()).count()
+    }
+
+    /// Count the number of (non-empty) intervals
+    pub(crate) fn n_data_intervals(&self) -> usize {
+        self.ranges.iter().filter(|ival| ival.is_data()).count()
     }
 
     /// For this node, find how many virtual address space bytes are backed by the zero page
@@ -85,7 +90,17 @@ impl ITreeNode {
         self.ranges()
             .iter()
             .filter(|i| i.is_data())
-            .map(|i| i.len() as usize)
+            .map(|i| {
+                debug_assert_eq!(
+                    Some(i.len() as usize),
+                    if let IntervalData::Data(ref d) = i.data {
+                        Some(d.len())
+                    } else {
+                        None
+                    }
+                );
+                i.len() as usize
+            })
             .sum()
     }
 
@@ -144,11 +159,11 @@ impl Interval {
                 data: IntervalData::Zero,
             }
         } else {
-            let data = IntervalData::Data(
-                data_map
-                    .remove(&raw.start)
-                    .expect("by construction, the data map should have this data"),
-            );
+            let priv_data = data_map
+                .remove(&raw.start)
+                .expect("by construction, the data map should have this data");
+            assert_eq!(priv_data.len(), (raw.end - raw.start) as usize);
+            let data = IntervalData::Data(priv_data);
             Interval {
                 start: raw.start,
                 end: raw.end,

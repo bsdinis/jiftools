@@ -70,7 +70,7 @@ impl RawInterval {
             }
         }
 
-        if start >= end {
+        if start > end {
             return Err(JifError::BadITreeNode {
                 itree_node_idx,
                 itree_node_err: ITreeNodeError {

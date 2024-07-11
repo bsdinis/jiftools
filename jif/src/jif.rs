@@ -1,6 +1,6 @@
 use crate::error::*;
 use crate::itree::ITree;
-use crate::itree_node::{ITreeNode, RawITreeNode};
+use crate::itree_node::{ITreeNode, RawITreeNode, RawInterval};
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::page_align;
@@ -37,6 +37,18 @@ impl Jif {
     /// Materialize a `Jif` from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
         fn construct_data_map(raw: &mut JifRaw) -> JifResult<BTreeMap<u64, Vec<u8>>> {
+            /// assert that the intervals refer to non-intersecting data
+            /// assumes that intervals is sorted by reverse order of offset
+            fn assert_non_intersecting_data(intervals: &[RawInterval]) {
+                let map_interval = |i: &RawInterval| (i.offset, i.offset + i.len());
+                intervals
+                    .iter()
+                    .rev()
+                    .map(map_interval)
+                    .zip(intervals.iter().rev().map(map_interval).skip(1))
+                    .for_each(|(i1, i2)| debug_assert!(i1.1 <= i2.0))
+            }
+
             let intervals = {
                 let mut is = raw
                     .itree_nodes
@@ -51,6 +63,7 @@ impl Jif {
                 is
             };
 
+            assert_non_intersecting_data(&intervals);
             let mut map = BTreeMap::new();
             let mut data_segments = raw.take_data();
             for interval in intervals {
@@ -59,6 +72,7 @@ impl Jif {
                     return Err(JifError::DataSegmentNotFound {
                         data_range: (interval.offset, interval.offset + interval.len()),
                         virtual_range: (interval.start, interval.end),
+                        found_len: data.len(),
                     });
                 }
                 map.insert(interval.start, data);
@@ -343,6 +357,8 @@ impl JifRaw {
         &self,
         index: usize,
         n: usize,
+        virtual_range: (u64, u64),
+        has_reference: bool,
         data_map: &mut BTreeMap<u64, Vec<u8>>,
     ) -> JifResult<ITree> {
         if index.saturating_add(n) > self.itree_nodes.len() {
@@ -361,7 +377,7 @@ impl JifRaw {
             .map(|raw| ITreeNode::from_raw(raw, data_map))
             .collect::<Vec<_>>();
 
-        Ok(ITree::new(nodes))
+        ITree::new(nodes, virtual_range, has_reference)
     }
 }
 
