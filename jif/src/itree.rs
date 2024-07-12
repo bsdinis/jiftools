@@ -89,23 +89,22 @@ impl ITree {
                     },
                 });
             }
-        } else {
-            if (virtual_range.1 - virtual_range.0) as usize != covered_by_zero + covered_by_private
-            {
-                return Err(JifError::InvalidITree {
-                    virtual_range,
-                    error: ITreeError::NonReferenceNotCovered {
-                        expected_coverage: (virtual_range.1 - virtual_range.0) as usize,
-                        covered_by_zero,
-                        covered_by_private,
-                    },
-                });
-            } else if non_mapped > 0 {
-                return Err(JifError::InvalidITree {
-                    virtual_range,
-                    error: ITreeError::NonReferenceHoled { non_mapped },
-                });
-            }
+        } else if (virtual_range.1 - virtual_range.0) as usize
+            != covered_by_zero + covered_by_private
+        {
+            return Err(JifError::InvalidITree {
+                virtual_range,
+                error: ITreeError::NonReferenceNotCovered {
+                    expected_coverage: (virtual_range.1 - virtual_range.0) as usize,
+                    covered_by_zero,
+                    covered_by_private,
+                },
+            });
+        } else if non_mapped > 0 {
+            return Err(JifError::InvalidITree {
+                virtual_range,
+                error: ITreeError::NonReferenceHoled { non_mapped },
+            });
         }
 
         Ok(ITree { nodes })

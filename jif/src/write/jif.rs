@@ -116,7 +116,7 @@ impl JifRaw {
 
             let len = data.len() as u64;
             assert_eq!(len, end - start, "length does not match the range");
-            w.write_all(&data)?;
+            w.write_all(data)?;
             written += len;
         }
         cursor += written as usize;

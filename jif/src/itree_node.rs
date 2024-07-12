@@ -262,7 +262,7 @@ impl RawInterval {
                 let interval = RawInterval {
                     start: interval.start,
                     end: interval.end,
-                    offset: data_base_offset + *data_size as u64,
+                    offset: data_base_offset + *data_size,
                 };
                 let data_len = interval_data.len() as u64;
                 data.insert((*data_size, *data_size + data_len), interval_data);
