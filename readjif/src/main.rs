@@ -92,8 +92,12 @@ struct Cli {
     command: Option<String>,
 
     /// Use the raw JIF
-    #[arg(long)]
+    #[arg(short, long)]
     raw: bool,
+
+    /// Just check
+    #[arg(short, long)]
+    check: bool,
 }
 
 fn select_raw(jif: JifRaw, cmd: RawCommand) {
@@ -430,6 +434,16 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
+
+    if args.check {
+        let mut file = BufReader::new(File::open(&args.jif_file).context("failed to open file")?);
+        if args.raw {
+            JifRaw::from_reader(&mut file).context("failed to open jif in raw mode")?;
+        } else {
+            Jif::from_reader(&mut file).context("failed to open jif in raw mode")?;
+        }
+        return Ok(());
+    }
 
     if args.raw {
         let cmd: RawCommand = args.command.try_into().map_err(|e| {
