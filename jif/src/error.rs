@@ -115,6 +115,9 @@ pub enum IntervalError {
 
     /// The interval is invalid (mixed validity of fields)
     InvalidInterval(u64, u64, u64),
+
+    /// Zero interval in anonymous segment
+    ZeroIntervalInAnon,
 }
 
 /// Pheader error types
@@ -128,17 +131,7 @@ pub enum OrdChunkError {
 #[derive(Debug)]
 pub enum ITreeError {
     /// Non reference pheaders need to be fully mapped by their zero and private sections
-    NonReferenceNotCovered {
-        expected_coverage: usize,
-        covered_by_zero: usize,
-        covered_by_private: usize,
-    },
-
-    /// Non reference pheaders cannot have non mapped regions
-    NonReferenceHoled { non_mapped: usize },
-
-    /// Reference pheader does not add up
-    ReferenceNotCovered {
+    RangeNotCovered {
         expected_coverage: usize,
         covered_by_zero: usize,
         covered_by_private: usize,
@@ -324,6 +317,9 @@ impl std::fmt::Display for IntervalError {
                 "invalid interval [{:x}; {:x}) -> {:x}",
                 begin, end, offset
             )),
+            IntervalError::ZeroIntervalInAnon => {
+                f.write_str("anonymous segment has an explicit zero interval")
+            }
         }
     }
 }
@@ -337,23 +333,12 @@ impl std::error::Error for IntervalError {
 impl std::fmt::Display for ITreeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ITreeError::NonReferenceHoled { non_mapped } => f.write_fmt(format_args!(
-                "non reference interval has {} bytes that are not mapped",
-                non_mapped
-            )),
-            ITreeError::NonReferenceNotCovered {
+            ITreeError::RangeNotCovered {
                 expected_coverage,
                 covered_by_zero,
                 covered_by_private,
-            } => f.write_fmt(format_args!("non reference interval needs {:#x} B to be covered and {:#x} B are covered by zero pages and {:#x} B by private data - {:#x} B missing",
-                    expected_coverage, covered_by_zero, covered_by_private, expected_coverage - covered_by_private - covered_by_zero
-                    )),
-            ITreeError::ReferenceNotCovered {
-                expected_coverage,
-                covered_by_zero,
-                covered_by_private,
-                non_mapped
-            } => f.write_fmt(format_args!("reference interval needs {:#x} B to be covered and {:#x} B are covered by zero pages, {:#x} B by private data and {:#x} B not mapped - {:#x} B missing",
+                non_mapped,
+            } => f.write_fmt(format_args!("interval needs {:#x} B to be covered and {:#x} B are covered by zero pages, {:#x} B by private data and {:#x} B not mapped - {:#x} B missing",
                     expected_coverage, covered_by_zero, covered_by_private, non_mapped, expected_coverage - covered_by_private - covered_by_zero - non_mapped
                     )),
             ITreeError::IntersectingInterval {

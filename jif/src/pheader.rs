@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
+use std::u64;
 
-use crate::diff::{create_itree_from_diff, create_itree_from_zero_page};
+use crate::diff::{
+    create_anon_itree_from_zero_page, create_itree_from_diff, create_ref_itree_from_zero_page,
+};
 use crate::error::*;
+use crate::interval::{AnonIntervalData, Interval, RefIntervalData};
 use crate::itree::ITree;
-use crate::itree_node::{Interval, IntervalData, RawITreeNode};
+use crate::itree_node::RawITreeNode;
 use crate::jif::JifRaw;
 use crate::utils::{page_align, PAGE_SIZE};
 
@@ -20,21 +24,45 @@ pub enum Prot {
 
 /// A materialized JIF pheader
 ///
-/// Contains all the information regarding its VMA:
-///  - the address range
-///  - an associated data segment and optional reference segment
-///  - an interval tree
-///  - protections
+/// There are two types of pheaders: anonymous and reference.
+///
+/// All pheaders include an address range, protections and an interval tree
+///
+/// Anonymous pheaders refer to anonymous memory.
+/// The interval tree can only hold data.
+/// Failing to resolve means it should be backed by the zero page.
+///
+/// Reference pheaders have a file that is backing all the segment.
+/// As such, they also hold the information regarding said file.
+/// Moreover, the interval tree intervals can refer either to data or to the zero page.
+/// Failing to resolve means it should be backed by the underlying file mapping.
 ///
 /// Can be used to visualize the VMA and manipulate it (e.g., construct an interal tree)
-pub struct JifPheader {
-    pub(crate) vaddr_range: (u64, u64),
+pub enum JifPheader {
+    Anonymous {
+        /// virtual address range
+        vaddr_range: (u64, u64),
+        /// interval tree
+        itree: ITree<AnonIntervalData>,
 
-    /// reference path + offset range
-    pub(crate) ref_segment: Option<(String, u64)>,
+        /// VMA protections
+        prot: u8,
+    },
+    Reference {
+        /// virtual address range
+        vaddr_range: (u64, u64),
+        /// interval tree
+        itree: ITree<RefIntervalData>,
 
-    pub(crate) itree: ITree,
-    pub(crate) prot: u8,
+        /// VMA protections
+        prot: u8,
+
+        /// reference path
+        ref_path: String,
+
+        /// reference into the file
+        ref_offset: u64,
+    },
 }
 
 /// The "raw" JIF pheader
@@ -68,48 +96,71 @@ impl JifPheader {
             .string_at_offset(raw.pathname_offset as usize)
             .map(|s| (s.to_string(), raw.ref_offset));
 
-        let itree = jif.get_itree(
-            raw.itree_idx as usize,
-            raw.itree_n_nodes as usize,
-            raw.virtual_range(),
-            raw.ref_offset().is_some(), /* has_reference */
-            data_map,
-        )?;
+        if let Some((ref_path, ref_offset)) = ref_segment {
+            let itree = jif.get_ref_itree(
+                raw.itree_idx as usize,
+                raw.itree_n_nodes as usize,
+                raw.virtual_range(),
+                data_map,
+            )?;
 
-        if ref_segment.is_none() {
-            assert_eq!(
-                itree.zero_byte_size() + itree.private_data_size(),
-                (vaddr_range.1 - vaddr_range.0) as usize
-            );
-            assert_eq!(
-                itree.not_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
-                0
-            );
+            Ok(JifPheader::Reference {
+                vaddr_range,
+                ref_path,
+                ref_offset,
+                itree,
+                prot: raw.prot,
+            })
         } else {
-            assert_eq!(
-                itree.zero_byte_size()
-                    + itree.private_data_size()
-                    + itree.not_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
-                (vaddr_range.1 - vaddr_range.0) as usize
-            );
-        }
+            let itree = jif.get_anon_itree(
+                raw.itree_idx as usize,
+                raw.itree_n_nodes as usize,
+                raw.virtual_range(),
+                data_map,
+            )?;
 
-        Ok(JifPheader {
-            vaddr_range,
-            ref_segment,
-            itree,
-            prot: raw.prot,
-        })
+            Ok(JifPheader::Anonymous {
+                vaddr_range,
+                itree,
+                prot: raw.prot,
+            })
+        }
     }
 
     /// Build an itree for a particular pheader
     pub fn build_itree(&mut self) -> JifResult<()> {
+        fn build_anon_from_zero(
+            itree: &mut ITree<AnonIntervalData>,
+            virtual_range: (u64, u64),
+        ) -> JifResult<()> {
+            let orig_itree = itree.take();
+            let mut intervals = vec![];
+            let data_intervals: Vec<Interval<AnonIntervalData>> = orig_itree
+                .into_iter_intervals()
+                .filter(|i| i.is_data())
+                .collect();
+
+            for data_interval in data_intervals {
+                let ival_len = data_interval.len() as usize;
+                if let AnonIntervalData::Data(data) = data_interval.data {
+                    assert_eq!(data.len(), ival_len);
+                    create_anon_itree_from_zero_page(data, data_interval.start, &mut intervals)
+                } else {
+                    panic!("we checked that this was an interval with data but there was no data");
+                }
+            }
+
+            *itree = ITree::build(intervals, virtual_range)?;
+            Ok(())
+        }
+
         fn build_from_diff(
-            pheader: &mut JifPheader,
+            itree: &mut ITree<RefIntervalData>,
             overlay: Vec<u8>,
+            virtual_range: (u64, u64),
             ref_path: &str,
             ref_offset: u64,
-        ) -> JifResult<ITree> {
+        ) -> JifResult<()> {
             let mut file = {
                 let mut f = BufReader::new(File::open(ref_path)?);
                 f.seek(SeekFrom::Start(ref_offset))?;
@@ -128,160 +179,183 @@ impl JifPheader {
             };
 
             let mut intervals = Vec::new();
-            create_itree_from_diff(&base, overlay, pheader.vaddr_range.0, &mut intervals);
-            let itree = ITree::build(
-                intervals,
-                pheader.virtual_range(),
-                true, /* has_reference */
-            )?;
+            create_itree_from_diff(&base, overlay, virtual_range.0, &mut intervals);
+            *itree = ITree::build(intervals, virtual_range)?;
 
-            assert_eq!(
-                itree.zero_byte_size()
-                    + itree.private_data_size()
-                    + itree.not_mapped_subregion_size(pheader.vaddr_range.0, pheader.vaddr_range.1),
-                (pheader.vaddr_range.1 - pheader.vaddr_range.0) as usize
-            );
-            Ok(itree)
+            Ok(())
         }
-
-        fn build_from_zero(pheader: &mut JifPheader) -> JifResult<ITree> {
-            let orig_itree = pheader.itree.take();
+        fn build_ref_from_zero(
+            itree: &mut ITree<RefIntervalData>,
+            virtual_range: (u64, u64),
+        ) -> JifResult<()> {
+            let orig_itree = itree.take();
             let mut intervals = orig_itree
                 .iter_intervals()
                 .filter(|i| i.is_zero())
                 .cloned()
                 .collect();
-            let data_intervals: Vec<Interval> = orig_itree
+            let data_intervals: Vec<Interval<RefIntervalData>> = orig_itree
                 .into_iter_intervals()
                 .filter(|i| i.is_data())
                 .collect();
 
             for data_interval in data_intervals {
                 let ival_len = data_interval.len() as usize;
-                if let IntervalData::Data(data) = data_interval.data {
+                if let RefIntervalData::Data(data) = data_interval.data {
                     assert_eq!(data.len(), ival_len);
-                    create_itree_from_zero_page(data, data_interval.start, &mut intervals)
+                    create_ref_itree_from_zero_page(data, data_interval.start, &mut intervals)
                 } else {
                     panic!("we checked that this was an interval with data but there was no data");
                 }
             }
 
-            let itree = ITree::build(
-                intervals,
-                pheader.virtual_range(),
-                false, /* has_reference */
-            )?;
-            assert_eq!(
-                itree.zero_byte_size() + itree.private_data_size(),
-                (pheader.vaddr_range.1 - pheader.vaddr_range.0) as usize
-            );
-            assert_eq!(
-                itree.not_mapped_subregion_size(pheader.vaddr_range.0, pheader.vaddr_range.1),
-                0
-            );
-            Ok(itree)
+            *itree = ITree::build(intervals, virtual_range)?;
+            Ok(())
         }
 
-        self.itree = if let Some((ref_path, ref_offset)) = self.ref_segment.clone() {
-            if self.itree.n_data_intervals() != 1 {
-                build_from_zero(self)?
-            } else {
-                let data_interval = self
-                    .itree
-                    .iter_mut_intervals()
-                    .find(|i| i.is_data())
-                    .expect("we checked there was a data interval");
-
-                if data_interval.start != self.vaddr_range.0 {
-                    build_from_zero(self)?
+        match self {
+            JifPheader::Reference {
+                itree,
+                ref_path,
+                ref_offset,
+                vaddr_range,
+                ..
+            } => {
+                if itree.n_data_intervals() != 1 {
+                    build_ref_from_zero(itree, *vaddr_range)?
                 } else {
-                    let overlay = if let IntervalData::Data(ref mut data) = data_interval.data {
-                        data.split_off(0)
-                    } else {
-                        panic!("we checked this was a data interval but there was no data");
-                    };
+                    let data_interval = itree
+                        .iter_mut_intervals()
+                        .find(|i| i.is_data())
+                        .expect("we checked there was a data interval");
 
-                    build_from_diff(self, overlay, &ref_path, ref_offset)?
+                    if data_interval.start != vaddr_range.0 {
+                        build_ref_from_zero(itree, *vaddr_range)?
+                    } else {
+                        let overlay = data_interval
+                            .take_data()
+                            .expect("we checked this was a data interval but there was no data");
+
+                        build_from_diff(itree, overlay, *vaddr_range, &ref_path, *ref_offset)?
+                    }
                 }
             }
-        } else {
-            build_from_zero(self)?
-        };
+            JifPheader::Anonymous {
+                itree, vaddr_range, ..
+            } => {
+                build_anon_from_zero(itree, *vaddr_range)?;
+            }
+        }
 
         Ok(())
     }
 
     /// Rename the file in this pheader if 1) it has a file and 2) it matches the name
     pub fn rename_file(&mut self, old: &str, new: &str) {
-        if let Some((ref mut path, _)) = self.ref_segment {
-            if path == old {
-                *path = new.to_string();
+        if let JifPheader::Reference { ref_path, .. } = self {
+            if ref_path == old {
+                *ref_path = new.to_string();
             }
         }
     }
 
     /// Check whether this pheader maps a particular address
     pub(crate) fn mapps_addr(&self, addr: u64) -> bool {
-        self.vaddr_range.0 <= addr && addr < self.vaddr_range.1
+        self.virtual_range().0 <= addr && addr < self.virtual_range().1
     }
 
     /// The virtual address space range that this pheader maps
     pub fn virtual_range(&self) -> (u64, u64) {
-        self.vaddr_range
+        match self {
+            JifPheader::Anonymous { vaddr_range, .. } => *vaddr_range,
+            JifPheader::Reference { vaddr_range, .. } => *vaddr_range,
+        }
+    }
+
+    /// The underlying interval tree for an anonymous segment
+    pub fn anon_itree(&self) -> Option<&ITree<AnonIntervalData>> {
+        match self {
+            JifPheader::Anonymous { itree, .. } => Some(itree),
+            JifPheader::Reference { .. } => None,
+        }
+    }
+
+    /// The underlying interval tree for a reference segment
+    pub fn ref_itree(&self) -> Option<&ITree<RefIntervalData>> {
+        match self {
+            JifPheader::Anonymous { .. } => None,
+            JifPheader::Reference { itree, .. } => Some(itree),
+        }
+    }
+
+    /// The size of the interval tree in number of nodes
+    pub fn n_itree_nodes(&self) -> usize {
+        match self {
+            JifPheader::Anonymous { itree, .. } => itree.n_nodes(),
+            JifPheader::Reference { itree, .. } => itree.n_nodes(),
+        }
     }
 
     /// The pathname of the reference section
     pub fn pathname(&self) -> Option<&str> {
-        self.ref_segment.as_ref().map(|(s, _)| s.as_str())
+        match self {
+            JifPheader::Anonymous { .. } => None,
+            JifPheader::Reference { ref_path, .. } => Some(ref_path.as_str()),
+        }
     }
 
     /// The offset range into the referenced file which is used to map the file data into this vma
     pub fn ref_offset(&self) -> Option<u64> {
-        self.ref_segment.as_ref().map(|(_, offset)| *offset)
+        match self {
+            JifPheader::Anonymous { .. } => None,
+            JifPheader::Reference { ref_offset, .. } => Some(*ref_offset),
+        }
     }
 
     /// The interval tree which encodes the data source of each page
-    pub fn itree(&self) -> &ITree {
-        &self.itree
-    }
+    // pub fn itree(&self) -> &ITree {
+    // &self.itree
+    // }
 
     /// The protections concerning this vma
     pub fn prot(&self) -> u8 {
-        self.prot
+        match self {
+            JifPheader::Anonymous { prot, .. } => *prot,
+            JifPheader::Reference { prot, .. } => *prot,
+        }
     }
 
     /// Size of the stored data (in Bytes)
     pub fn data_size(&self) -> usize {
-        self.itree.private_data_size()
+        match self {
+            JifPheader::Anonymous { itree, .. } => itree.private_data_size(),
+            JifPheader::Reference { itree, .. } => itree.private_data_size(),
+        }
     }
 
     /// Number of zero pages encoded (by ommission) in this pheader
     pub fn zero_pages(&self) -> usize {
-        self.itree.zero_byte_size() / PAGE_SIZE
+        (match self {
+            JifPheader::Anonymous {
+                itree, vaddr_range, ..
+            } => itree.not_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
+            JifPheader::Reference { itree, .. } => itree.zero_byte_size(),
+        }) / PAGE_SIZE
     }
 
     /// Number of private data pages in this pheader
     pub fn private_pages(&self) -> usize {
-        self.itree.private_data_size() / PAGE_SIZE
+        self.data_size() / PAGE_SIZE
     }
 
     /// Number of pages coming from the reference file
     pub fn shared_pages(&self) -> usize {
-        self.ref_segment
-            .as_ref()
-            .map(|_| {
-                self.itree
-                    .not_mapped_subregion_size(self.vaddr_range.0, self.vaddr_range.1)
-            })
-            .unwrap_or_else(|| {
-                assert_eq!(
-                    self.itree
-                        .not_mapped_subregion_size(self.vaddr_range.0, self.vaddr_range.1),
-                    0
-                );
-                0
-            })
-            / PAGE_SIZE
+        (match self {
+            JifPheader::Anonymous { .. } => 0,
+            JifPheader::Reference {
+                itree, vaddr_range, ..
+            } => itree.not_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
+        }) / PAGE_SIZE
     }
 
     /// Total number of pages in the pheader
@@ -311,40 +385,81 @@ impl JifRawPheader {
         data_size: &mut u64,
         data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
     ) -> JifRawPheader {
-        let (vbegin, vend) = jif.vaddr_range;
+        match jif {
+            JifPheader::Anonymous {
+                vaddr_range,
+                itree,
+                prot,
+            } => {
+                let (vbegin, vend) = vaddr_range;
+                let (itree_idx, itree_n_nodes) = {
+                    let idx = itree_nodes.len() as u32;
+                    let len = itree.nodes.len() as u32;
 
-        let (ref_offset, pathname_offset) = if let Some((name, offset)) = jif.ref_segment {
-            let pathname_offset = string_map
-                .get(&name)
-                .map(|path_offset| *path_offset as u32)
-                .unwrap_or(u32::MAX);
-            (offset, pathname_offset)
-        } else {
-            (u64::MAX, u32::MAX)
-        };
+                    itree_nodes.reserve(itree.nodes.len());
+                    for node in itree.nodes {
+                        let new_node = RawITreeNode::from_materialized_anon(
+                            node,
+                            data_base_offset,
+                            data_size,
+                            data_map,
+                        );
+                        itree_nodes.push(new_node)
+                    }
 
-        let (itree_idx, itree_n_nodes) = {
-            let idx = itree_nodes.len() as u32;
-            let len = jif.itree.nodes.len() as u32;
+                    (idx, len)
+                };
 
-            itree_nodes.reserve(jif.itree.nodes.len());
-            for node in jif.itree.nodes {
-                let new_node =
-                    RawITreeNode::from_materialized(node, data_base_offset, data_size, data_map);
-                itree_nodes.push(new_node)
+                JifRawPheader {
+                    vbegin,
+                    vend,
+                    ref_offset: u64::MAX,
+                    itree_idx,
+                    itree_n_nodes,
+                    pathname_offset: u32::MAX,
+                    prot,
+                }
             }
+            JifPheader::Reference {
+                vaddr_range,
+                itree,
+                prot,
+                ref_path,
+                ref_offset,
+            } => {
+                let (vbegin, vend) = vaddr_range;
+                let (itree_idx, itree_n_nodes) = {
+                    let idx = itree_nodes.len() as u32;
+                    let len = itree.nodes.len() as u32;
 
-            (idx, len)
-        };
+                    itree_nodes.reserve(itree.nodes.len());
+                    for node in itree.nodes {
+                        let new_node = RawITreeNode::from_materialized_ref(
+                            node,
+                            data_base_offset,
+                            data_size,
+                            data_map,
+                        );
+                        itree_nodes.push(new_node)
+                    }
 
-        JifRawPheader {
-            vbegin,
-            vend,
-            ref_offset,
-            itree_idx,
-            itree_n_nodes,
-            pathname_offset,
-            prot: jif.prot,
+                    (idx, len)
+                };
+                let pathname_offset = string_map
+                    .get(&ref_path)
+                    .map(|path_offset| *path_offset as u32)
+                    .unwrap_or(u32::MAX);
+
+                JifRawPheader {
+                    vbegin,
+                    vend,
+                    ref_offset,
+                    itree_idx,
+                    itree_n_nodes,
+                    pathname_offset,
+                    prot,
+                }
+            }
         }
     }
 
@@ -381,35 +496,51 @@ impl std::fmt::Debug for JifPheader {
         dbg_struct
             .field(
                 "virtual_area",
-                &format!("[{:#x}, {:#x})", self.vaddr_range.0, self.vaddr_range.1),
+                &format!(
+                    "[{:#x}, {:#x})",
+                    self.virtual_range().0,
+                    self.virtual_range().1
+                ),
             )
             .field(
                 "data_size",
                 &format!("{:#x} B", self.private_pages() * PAGE_SIZE),
             );
 
-        if let Some((path, offset)) = &self.ref_segment {
-            dbg_struct.field("ref", &format!("reference {}[{:#x}..]", path, offset));
+        match self {
+            JifPheader::Anonymous { itree, .. } => {
+                dbg_struct.field("itree", itree);
+            }
+            JifPheader::Reference {
+                ref_path,
+                ref_offset,
+                itree,
+                ..
+            } => {
+                dbg_struct.field(
+                    "ref",
+                    &format!("reference {}[{:#x}..]", ref_path, ref_offset),
+                );
+                dbg_struct.field("itree", itree);
+            }
         }
-
-        dbg_struct.field("itree", &self.itree);
 
         dbg_struct
             .field(
                 "prot",
                 &format!(
                     "{}{}{}",
-                    if self.prot & Prot::Read as u8 != 0 {
+                    if self.prot() & Prot::Read as u8 != 0 {
                         "r"
                     } else {
                         "-"
                     },
-                    if self.prot & Prot::Write as u8 != 0 {
+                    if self.prot() & Prot::Write as u8 != 0 {
                         "w"
                     } else {
                         "-"
                     },
-                    if self.prot & Prot::Exec as u8 != 0 {
+                    if self.prot() & Prot::Exec as u8 != 0 {
                         "x"
                     } else {
                         "-"

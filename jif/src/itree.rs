@@ -1,5 +1,6 @@
 use crate::error::*;
-use crate::itree_node::{ITreeNode, Interval, FANOUT};
+use crate::interval::{Interval, IntervalData};
+use crate::itree_node::{ITreeNode, FANOUT};
 
 /// Interval Tree representation
 ///
@@ -13,17 +14,13 @@ use crate::itree_node::{ITreeNode, Interval, FANOUT};
 ///  - Address is not found: means the address is backed by the reference file (with the offset
 ///  being the offset of the virtual address into the virtual address range)
 ///
-pub struct ITree {
-    pub(crate) nodes: Vec<ITreeNode>,
+pub struct ITree<Data: IntervalData> {
+    pub(crate) nodes: Vec<ITreeNode<Data>>,
 }
 
-impl ITree {
+impl<Data: IntervalData + std::default::Default> ITree<Data> {
     /// Construct a new interval tree
-    pub fn new(
-        nodes: Vec<ITreeNode>,
-        virtual_range: (u64, u64),
-        has_backing_reference: bool,
-    ) -> JifResult<Self> {
+    pub fn new(nodes: Vec<ITreeNode<Data>>, virtual_range: (u64, u64)) -> JifResult<Self> {
         let intervals = {
             let mut i = nodes
                 .iter()
@@ -75,35 +72,17 @@ impl ITree {
                 .sum::<usize>()
         };
 
-        if has_backing_reference {
-            if (virtual_range.1 - virtual_range.0) as usize
-                != covered_by_zero + covered_by_private + non_mapped
-            {
-                return Err(JifError::InvalidITree {
-                    virtual_range,
-                    error: ITreeError::ReferenceNotCovered {
-                        expected_coverage: (virtual_range.1 - virtual_range.0) as usize,
-                        covered_by_zero,
-                        covered_by_private,
-                        non_mapped,
-                    },
-                });
-            }
-        } else if (virtual_range.1 - virtual_range.0) as usize
-            != covered_by_zero + covered_by_private
+        if (virtual_range.1 - virtual_range.0) as usize
+            != covered_by_zero + covered_by_private + non_mapped
         {
             return Err(JifError::InvalidITree {
                 virtual_range,
-                error: ITreeError::NonReferenceNotCovered {
+                error: ITreeError::RangeNotCovered {
                     expected_coverage: (virtual_range.1 - virtual_range.0) as usize,
                     covered_by_zero,
                     covered_by_private,
+                    non_mapped,
                 },
-            });
-        } else if non_mapped > 0 {
-            return Err(JifError::InvalidITree {
-                virtual_range,
-                error: ITreeError::NonReferenceHoled { non_mapped },
             });
         }
 
@@ -121,12 +100,12 @@ impl ITree {
     }
 
     /// Build a new interval tree (by balancing the intervals)
-    pub fn build(
-        mut intervals: Vec<Interval>,
-        virtual_range: (u64, u64),
-        has_reference: bool,
-    ) -> JifResult<Self> {
-        fn fill(nodes: &mut Vec<ITreeNode>, intervals: &mut Vec<Interval>, node_idx: usize) {
+    pub fn build(mut intervals: Vec<Interval<Data>>, virtual_range: (u64, u64)) -> JifResult<Self> {
+        fn fill<Data: IntervalData>(
+            nodes: &mut Vec<ITreeNode<Data>>,
+            intervals: &mut Vec<Interval<Data>>,
+            node_idx: usize,
+        ) {
             // first base case: no node with this index
             if node_idx >= nodes.len() {
                 return;
@@ -159,7 +138,7 @@ impl ITree {
         // sort intervals in descending order of start (we pop them out the back)
         intervals.sort_by(|it1, it2| it2.start.cmp(&it1.start));
         fill(&mut nodes, &mut intervals, 0);
-        ITree::new(nodes, virtual_range, has_reference)
+        ITree::new(nodes, virtual_range)
     }
 
     /// Size of the interval tree in number of nodes
@@ -178,15 +157,15 @@ impl ITree {
     }
 
     /// Iterate over the intervals
-    pub(crate) fn into_iter_intervals(self) -> impl Iterator<Item = Interval> {
+    pub(crate) fn into_iter_intervals(self) -> impl Iterator<Item = Interval<Data>> {
         self.nodes.into_iter().flat_map(|n| n.ranges.into_iter())
     }
     /// Iterate over the intervals
-    pub(crate) fn iter_intervals(&self) -> impl Iterator<Item = &Interval> {
+    pub(crate) fn iter_intervals(&self) -> impl Iterator<Item = &Interval<Data>> {
         self.nodes.iter().flat_map(|n| n.ranges.iter())
     }
     /// Mutably Iterate over the intervals
-    pub(crate) fn iter_mut_intervals(&mut self) -> impl Iterator<Item = &mut Interval> {
+    pub(crate) fn iter_mut_intervals(&mut self) -> impl Iterator<Item = &mut Interval<Data>> {
         self.nodes.iter_mut().flat_map(|n| n.ranges.iter_mut())
     }
 
@@ -216,7 +195,7 @@ impl ITree {
     }
 }
 
-impl std::fmt::Debug for ITree {
+impl<Data: IntervalData + std::fmt::Debug> std::fmt::Debug for ITree<Data> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.nodes.iter()).finish()
     }

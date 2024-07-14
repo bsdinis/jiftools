@@ -406,10 +406,14 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                             )
                         }
                         if selector.itree {
-                            print!("itree: {:?}, ", pheader.itree());
+                            if let Some(anon_itree) = pheader.anon_itree() {
+                                print!("itree: {:?}, ", anon_itree);
+                            } else if let Some(ref_itree) = pheader.ref_itree() {
+                                print!("itree: {:?}, ", ref_itree);
+                            }
                         }
                         if selector.n_itree_nodes {
-                            print!("n_itree_nodes: {:?}, ", pheader.itree().n_nodes());
+                            print!("n_itree_nodes: {:?}, ", pheader.n_itree_nodes());
                         }
                         if selector.zero_pages {
                             print!("zero_pages: {}, ", pheader.zero_pages())

@@ -1,3 +1,4 @@
+mod interval;
 mod itree_node;
 mod jif;
 mod ord;

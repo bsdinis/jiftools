@@ -4,6 +4,7 @@
 
 mod diff;
 pub mod error;
+mod interval;
 mod itree;
 mod itree_node;
 mod jif;

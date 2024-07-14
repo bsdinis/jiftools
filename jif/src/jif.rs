@@ -1,4 +1,5 @@
 use crate::error::*;
+use crate::interval::{AnonIntervalData, RefIntervalData};
 use crate::itree::ITree;
 use crate::itree_node::{ITreeNode, RawITreeNode};
 use crate::ord::OrdChunk;
@@ -54,7 +55,10 @@ impl Jif {
     pub fn strings(&self) -> HashSet<&str> {
         self.pheaders
             .iter()
-            .filter_map(|phdr| phdr.ref_segment.as_ref().map(|(s, _)| s.as_str()))
+            .filter_map(|phdr| match phdr {
+                JifPheader::Anonymous { .. } => None,
+                JifPheader::Reference { ref_path, .. } => Some(ref_path.as_str()),
+            })
             .collect()
     }
 
@@ -88,7 +92,10 @@ impl Jif {
         let itree_size = self
             .pheaders
             .iter()
-            .map(|phdr| phdr.itree.n_nodes())
+            .map(|phdr| match phdr {
+                JifPheader::Anonymous { itree, .. } => itree.n_nodes(),
+                JifPheader::Reference { itree, .. } => itree.n_nodes(),
+            })
             .sum::<usize>()
             * RawITreeNode::serialized_size();
 
@@ -190,10 +197,10 @@ impl JifRaw {
 
         let string_map = {
             let strings = jif
-                .pheaders
-                .iter()
-                .filter_map(|phdr| phdr.ref_segment.as_ref().map(|(s, _)| s.clone()))
-                .collect::<HashSet<_>>();
+                .strings()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<HashSet<String>>();
 
             let mut offset = 0;
             strings
@@ -310,15 +317,44 @@ impl JifRaw {
             .next()
     }
 
-    /// Get an interval tree from an (index, len) range
-    pub(crate) fn get_itree(
+    /// Get an anonymous interval tree from an (index, len) range
+    pub(crate) fn get_anon_itree(
         &self,
         index: usize,
         n: usize,
         virtual_range: (u64, u64),
-        has_reference: bool,
         data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
-    ) -> JifResult<ITree> {
+    ) -> JifResult<ITree<AnonIntervalData>> {
+        if index.saturating_add(n) > self.itree_nodes.len() {
+            return Err(JifError::ITreeNotFound {
+                index,
+                len: n,
+                n_nodes: self.itree_nodes.len(),
+            });
+        }
+
+        let nodes = self
+            .itree_nodes
+            .iter()
+            .enumerate()
+            .skip(index)
+            .take(n)
+            .map(|(itree_node_idx, raw)| {
+                ITreeNode::from_raw_anon(raw, self.data_offset, data_map, itree_node_idx)
+            })
+            .collect::<JifResult<Vec<_>>>()?;
+
+        ITree::new(nodes, virtual_range)
+    }
+
+    /// Get a reference interval tree from an (index, len) range
+    pub(crate) fn get_ref_itree(
+        &self,
+        index: usize,
+        n: usize,
+        virtual_range: (u64, u64),
+        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+    ) -> JifResult<ITree<RefIntervalData>> {
         if index.saturating_add(n) > self.itree_nodes.len() {
             return Err(JifError::ITreeNotFound {
                 index,
@@ -332,10 +368,10 @@ impl JifRaw {
             .iter()
             .skip(index)
             .take(n)
-            .map(|raw| ITreeNode::from_raw(raw, self.data_offset, data_map))
+            .map(|raw| ITreeNode::from_raw_ref(raw, self.data_offset, data_map))
             .collect::<Vec<_>>();
 
-        ITree::new(nodes, virtual_range, has_reference)
+        ITree::new(nodes, virtual_range)
     }
 }
 
