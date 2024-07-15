@@ -184,7 +184,10 @@ impl Jif {
 
 impl JifRaw {
     /// Construct a raw JIF from a materialized one
-    pub fn from_materialized(jif: Jif) -> Self {
+    pub fn from_materialized(mut jif: Jif) -> Self {
+        // print pheaders in order
+        jif.pheaders.sort_by_key(|phdr| phdr.virtual_range().0);
+
         let string_map = {
             let strings = jif
                 .pheaders
