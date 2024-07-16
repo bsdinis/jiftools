@@ -5,7 +5,7 @@ use crate::ord::OrdChunk;
 use crate::pheader::JifRawPheader;
 use crate::utils::{is_page_aligned, read_u32, seek_to_page};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, Read, Seek};
 
 impl JifRaw {
@@ -75,31 +75,36 @@ impl JifRaw {
 
         // read data segments
         let data_segments = {
-            let data_offset_intervals = {
-                let mut ival = itree_nodes
-                    .iter()
-                    .flat_map(|n| n.ranges.iter())
-                    .filter(|i| i.is_data())
-                    .map(|i| (i.offset - data_offset, i.len()))
-                    .collect::<Vec<_>>();
-                ival.sort();
-                ival
-            };
+            // deduplicated intervals can issue the same data ranges
+            // we need to deduplicate them here
+            let data_offset_intervals = itree_nodes
+                .iter()
+                .flat_map(|n| n.ranges.iter())
+                .filter(|i| i.is_data())
+                .map(|i| (i.offset - data_offset, i.len()))
+                .collect::<BTreeSet<_>>();
 
-            let mut cur_offset = 0;
+            for (ival1, ival2) in data_offset_intervals
+                .iter()
+                .zip(data_offset_intervals.iter().skip(1))
+            {
+                assert_eq!(
+                    ival1.0 + ival1.1,
+                    ival2.0,
+                    "intervals are not contiguous: [{:#x}; {:#x}) and [{:#x}; {:#x})",
+                    ival1.0,
+                    ival1.0 + ival1.1,
+                    ival2.0,
+                    ival2.0 + ival2.1,
+                );
+            }
+
             let mut map = BTreeMap::new();
             for (offset, len) in data_offset_intervals {
-                if offset < cur_offset {
-                    eprintln!("WARN: skipping over {:#x} B", cur_offset - offset);
-                    r.seek_relative((cur_offset - offset) as i64)?;
-                    cur_offset = offset;
-                }
-
                 let data = {
                     let mut d = Vec::new();
                     let mut reader = r.take(len);
                     reader.read_to_end(&mut d)?;
-                    cur_offset += len;
                     Ok::<Vec<_>, std::io::Error>(d)
                 }?;
 

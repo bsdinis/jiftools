@@ -1,3 +1,4 @@
+use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
 use crate::interval::{AnonIntervalData, RefIntervalData};
 use crate::itree::ITree;
@@ -21,6 +22,7 @@ pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
 pub struct Jif {
     pub(crate) pheaders: Vec<JifPheader>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
+    pub(crate) deduper: Deduper,
 }
 
 /// The "raw" JIF file representation
@@ -38,16 +40,18 @@ pub struct JifRaw {
 impl Jif {
     /// Materialize a `Jif` from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
-        let mut data_map = raw.take_data();
+        let data_map = raw.take_data();
+        let (deduper, offset_index) = Deduper::from_data_map(data_map);
         let pheaders = raw
             .pheaders
             .iter()
-            .map(|raw_pheader| JifPheader::from_raw(&raw, raw_pheader, &mut data_map))
+            .map(|raw_pheader| JifPheader::from_raw(&raw, raw_pheader, &deduper, &offset_index))
             .collect::<Result<Vec<JifPheader>, _>>()?;
 
         Ok(Jif {
             pheaders,
             ord_chunks: raw.ord_chunks,
+            deduper,
         })
     }
 
@@ -110,7 +114,7 @@ impl Jif {
     /// Construct the interval trees of all the pheaders
     pub fn build_itrees(&mut self) -> JifResult<()> {
         for p in self.pheaders.iter_mut() {
-            p.build_itree()?;
+            p.build_itree(&self.deduper)?;
         }
 
         Ok(())
@@ -192,7 +196,7 @@ impl Jif {
     pub fn iter_private_pages(&self) -> impl Iterator<Item = &[u8]> {
         self.pheaders
             .iter()
-            .flat_map(JifPheader::iter_private_pages)
+            .flat_map(|phdr| phdr.iter_private_pages(&self.deduper))
     }
 }
 
@@ -221,9 +225,9 @@ impl JifRaw {
         };
 
         let data_offset = jif.data_offset();
-        let mut data_size = 0;
+        let mut last_data_offset = jif.data_offset();
         let mut itree_nodes = Vec::new();
-        let mut data_segments = BTreeMap::new();
+        let mut token_map = BTreeMap::new();
         let pheaders = jif
             .pheaders
             .into_iter()
@@ -232,9 +236,9 @@ impl JifRaw {
                     phdr,
                     &string_map,
                     &mut itree_nodes,
-                    data_offset,
-                    &mut data_size,
-                    &mut data_segments,
+                    &mut jif.deduper,
+                    &mut token_map,
+                    &mut last_data_offset,
                 )
             })
             .collect::<Vec<_>>();
@@ -259,6 +263,8 @@ impl JifRaw {
 
             s
         };
+
+        let data_segments = jif.deduper.destructure(token_map);
 
         JifRaw {
             pheaders,
@@ -330,7 +336,8 @@ impl JifRaw {
         index: usize,
         n: usize,
         virtual_range: (u64, u64),
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> JifResult<ITree<AnonIntervalData>> {
         if index.saturating_add(n) > self.itree_nodes.len() {
             return Err(JifError::ITreeNotFound {
@@ -347,7 +354,7 @@ impl JifRaw {
             .skip(index)
             .take(n)
             .map(|(itree_node_idx, raw)| {
-                ITreeNode::from_raw_anon(raw, self.data_offset, data_map, itree_node_idx)
+                ITreeNode::from_raw_anon(raw, self.data_offset, deduper, offset_idx, itree_node_idx)
             })
             .collect::<JifResult<Vec<_>>>()?;
 
@@ -360,7 +367,8 @@ impl JifRaw {
         index: usize,
         n: usize,
         virtual_range: (u64, u64),
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> JifResult<ITree<RefIntervalData>> {
         if index.saturating_add(n) > self.itree_nodes.len() {
             return Err(JifError::ITreeNotFound {
@@ -375,7 +383,7 @@ impl JifRaw {
             .iter()
             .skip(index)
             .take(n)
-            .map(|raw| ITreeNode::from_raw_ref(raw, self.data_offset, data_map))
+            .map(|raw| ITreeNode::from_raw_ref(raw, self.data_offset, deduper, offset_idx))
             .collect::<Vec<_>>();
 
         ITree::new(nodes, virtual_range)

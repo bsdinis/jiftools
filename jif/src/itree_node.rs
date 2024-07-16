@@ -1,3 +1,4 @@
+use crate::deduper::{DedupToken, Deduper};
 use crate::error::JifResult;
 use crate::interval::{AnonIntervalData, Interval, IntervalData, RawInterval, RefIntervalData};
 use std::collections::BTreeMap;
@@ -26,7 +27,8 @@ impl ITreeNode<AnonIntervalData> {
     pub(crate) fn from_raw_anon(
         raw: &RawITreeNode,
         data_offset: u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
         itree_node_idx: usize,
     ) -> JifResult<Self> {
         let mut node = ITreeNode::default();
@@ -36,7 +38,8 @@ impl ITreeNode<AnonIntervalData> {
             *interval = Interval::from_raw_anon(
                 raw_interval,
                 data_offset,
-                data_map,
+                deduper,
+                offset_idx,
                 interval_idx,
                 itree_node_idx,
             )?;
@@ -50,11 +53,12 @@ impl ITreeNode<RefIntervalData> {
     pub(crate) fn from_raw_ref(
         raw: &RawITreeNode,
         data_offset: u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> Self {
         let mut node = ITreeNode::default();
         for (raw_interval, interval) in raw.ranges.iter().zip(node.ranges.iter_mut()) {
-            *interval = Interval::from_raw_ref(raw_interval, data_offset, data_map);
+            *interval = Interval::from_raw_ref(raw_interval, data_offset, deduper, offset_idx);
         }
         node
     }
@@ -122,18 +126,14 @@ impl RawITreeNode {
     /// Lower an anonymous ITreeNode into a raw
     pub(crate) fn from_materialized_anon(
         node: ITreeNode<AnonIntervalData>,
-        data_base_offset: u64,
-        data_size: &mut u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &mut Deduper,
+        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
+        last_data_offset: &mut u64,
     ) -> Self {
         let mut raw = RawITreeNode::default();
         for (raw_interval, interval) in raw.ranges.iter_mut().zip(node.ranges.into_iter()) {
-            *raw_interval = RawInterval::from_materialized_anon(
-                interval,
-                data_base_offset,
-                data_size,
-                data_map,
-            );
+            *raw_interval =
+                RawInterval::from_materialized_anon(interval, deduper, token_map, last_data_offset);
         }
         raw
     }
@@ -141,14 +141,14 @@ impl RawITreeNode {
     /// Lower a reference ITreeNode into a raw
     pub(crate) fn from_materialized_ref(
         node: ITreeNode<RefIntervalData>,
-        data_base_offset: u64,
-        data_size: &mut u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &mut Deduper,
+        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
+        last_data_offset: &mut u64,
     ) -> Self {
         let mut raw = RawITreeNode::default();
         for (raw_interval, interval) in raw.ranges.iter_mut().zip(node.ranges.into_iter()) {
             *raw_interval =
-                RawInterval::from_materialized_ref(interval, data_base_offset, data_size, data_map);
+                RawInterval::from_materialized_ref(interval, deduper, token_map, last_data_offset);
         }
         raw
     }

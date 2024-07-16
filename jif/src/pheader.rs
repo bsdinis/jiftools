@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::u64;
 
+use crate::deduper::{DedupToken, Deduper};
 use crate::diff::{
     create_anon_itree_from_zero_page, create_itree_from_diff, create_ref_itree_from_zero_page,
 };
 use crate::error::*;
-use crate::interval::{AnonIntervalData, Interval, RefIntervalData};
+use crate::interval::{AnonIntervalData, Interval, IntervalData, RefIntervalData};
 use crate::itree::ITree;
 use crate::itree_node::RawITreeNode;
 use crate::jif::JifRaw;
@@ -88,7 +89,8 @@ impl JifPheader {
     pub(crate) fn from_raw(
         jif: &JifRaw,
         raw: &JifRawPheader,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> JifResult<Self> {
         let vaddr_range = (raw.vbegin, raw.vend);
 
@@ -101,7 +103,8 @@ impl JifPheader {
                 raw.itree_idx as usize,
                 raw.itree_n_nodes as usize,
                 raw.virtual_range(),
-                data_map,
+                deduper,
+                offset_idx,
             )?;
 
             Ok(JifPheader::Reference {
@@ -116,7 +119,8 @@ impl JifPheader {
                 raw.itree_idx as usize,
                 raw.itree_n_nodes as usize,
                 raw.virtual_range(),
-                data_map,
+                deduper,
+                offset_idx,
             )?;
 
             Ok(JifPheader::Anonymous {
@@ -128,10 +132,11 @@ impl JifPheader {
     }
 
     /// Build an itree for a particular pheader
-    pub fn build_itree(&mut self) -> JifResult<()> {
+    pub fn build_itree(&mut self, deduper: &Deduper) -> JifResult<()> {
         fn build_anon_from_zero(
             itree: &mut ITree<AnonIntervalData>,
             virtual_range: (u64, u64),
+            deduper: &Deduper,
         ) -> JifResult<()> {
             let orig_itree = itree.take();
             let mut intervals = vec![];
@@ -142,7 +147,7 @@ impl JifPheader {
 
             for data_interval in data_intervals {
                 let ival_len = data_interval.len() as usize;
-                if let AnonIntervalData::Data(data) = data_interval.data {
+                if let Some(data) = data_interval.data.get_data(deduper) {
                     assert_eq!(data.len(), ival_len);
                     create_anon_itree_from_zero_page(data, data_interval.start, &mut intervals)
                 } else {
@@ -155,12 +160,11 @@ impl JifPheader {
         }
 
         fn build_from_diff(
-            itree: &mut ITree<RefIntervalData>,
-            overlay: Vec<u8>,
+            overlay: &[u8],
             virtual_range: (u64, u64),
             ref_path: &str,
             ref_offset: u64,
-        ) -> JifResult<()> {
+        ) -> JifResult<ITree<RefIntervalData>> {
             let mut file = {
                 let mut f = BufReader::new(File::open(ref_path)?);
                 f.seek(SeekFrom::Start(ref_offset))?;
@@ -180,13 +184,12 @@ impl JifPheader {
 
             let mut intervals = Vec::new();
             create_itree_from_diff(&base, overlay, virtual_range.0, &mut intervals);
-            *itree = ITree::build(intervals, virtual_range)?;
-
-            Ok(())
+            ITree::build(intervals, virtual_range)
         }
         fn build_ref_from_zero(
             itree: &mut ITree<RefIntervalData>,
             virtual_range: (u64, u64),
+            deduper: &Deduper,
         ) -> JifResult<()> {
             let orig_itree = itree.take();
             let mut intervals = orig_itree
@@ -201,7 +204,7 @@ impl JifPheader {
 
             for data_interval in data_intervals {
                 let ival_len = data_interval.len() as usize;
-                if let RefIntervalData::Data(data) = data_interval.data {
+                if let Some(data) = data_interval.data.get_data(deduper) {
                     assert_eq!(data.len(), ival_len);
                     create_ref_itree_from_zero_page(data, data_interval.start, &mut intervals)
                 } else {
@@ -222,28 +225,29 @@ impl JifPheader {
                 ..
             } => {
                 if itree.n_data_intervals() != 1 {
-                    build_ref_from_zero(itree, *vaddr_range)?
+                    build_ref_from_zero(itree, *vaddr_range, deduper)?
                 } else {
                     let data_interval = itree
-                        .iter_mut_intervals()
+                        .iter_intervals()
                         .find(|i| i.is_data())
                         .expect("we checked there was a data interval");
 
                     if data_interval.start != vaddr_range.0 {
-                        build_ref_from_zero(itree, *vaddr_range)?
+                        build_ref_from_zero(itree, *vaddr_range, deduper)?
                     } else {
-                        let overlay = data_interval
-                            .take_data()
-                            .expect("we checked this was a data interval but there was no data");
-
-                        build_from_diff(itree, overlay, *vaddr_range, &ref_path, *ref_offset)?
+                        if let Some(overlay) = data_interval.data.get_data(deduper) {
+                            *itree =
+                                build_from_diff(overlay, *vaddr_range, &ref_path, *ref_offset)?;
+                        } else {
+                            panic!("we checked this was a data interval but there was no data");
+                        }
                     }
                 }
             }
             JifPheader::Anonymous {
                 itree, vaddr_range, ..
             } => {
-                build_anon_from_zero(itree, *vaddr_range)?;
+                build_anon_from_zero(itree, *vaddr_range, deduper)?;
             }
         }
 
@@ -370,10 +374,13 @@ impl JifPheader {
     }
 
     /// Iterate over the private pages in the pheader
-    pub fn iter_private_pages(&self) -> Box<dyn Iterator<Item = &[u8]> + '_> {
+    pub(crate) fn iter_private_pages<'a>(
+        &'a self,
+        deduper: &'a Deduper,
+    ) -> Box<dyn Iterator<Item = &[u8]> + 'a> {
         match self {
-            JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages()),
-            JifPheader::Reference { itree, .. } => Box::new(itree.iter_private_pages()),
+            JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
+            JifPheader::Reference { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
         }
     }
 }
@@ -389,9 +396,9 @@ impl JifRawPheader {
         jif: JifPheader,
         string_map: &BTreeMap<String, usize>,
         itree_nodes: &mut Vec<RawITreeNode>,
-        data_base_offset: u64,
-        data_size: &mut u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &mut Deduper,
+        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
+        last_data_offset: &mut u64,
     ) -> JifRawPheader {
         match jif {
             JifPheader::Anonymous {
@@ -408,9 +415,9 @@ impl JifRawPheader {
                     for node in itree.nodes {
                         let new_node = RawITreeNode::from_materialized_anon(
                             node,
-                            data_base_offset,
-                            data_size,
-                            data_map,
+                            deduper,
+                            token_map,
+                            last_data_offset,
                         );
                         itree_nodes.push(new_node)
                     }
@@ -444,9 +451,9 @@ impl JifRawPheader {
                     for node in itree.nodes {
                         let new_node = RawITreeNode::from_materialized_ref(
                             node,
-                            data_base_offset,
-                            data_size,
-                            data_map,
+                            deduper,
+                            token_map,
+                            last_data_offset,
                         );
                         itree_nodes.push(new_node)
                     }

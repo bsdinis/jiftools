@@ -1,3 +1,4 @@
+use crate::deduper::Deduper;
 use crate::error::*;
 use crate::interval::{Interval, IntervalData};
 use crate::itree_node::{ITreeNode, FANOUT};
@@ -165,10 +166,6 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     pub(crate) fn iter_intervals(&self) -> impl Iterator<Item = &Interval<Data>> {
         self.nodes.iter().flat_map(|n| n.ranges.iter())
     }
-    /// Mutably Iterate over the intervals
-    pub(crate) fn iter_mut_intervals(&mut self) -> impl Iterator<Item = &mut Interval<Data>> {
-        self.nodes.iter_mut().flat_map(|n| n.ranges.iter_mut())
-    }
 
     /// How much of the interval tree consists of zero page mappings
     pub fn zero_byte_size(&self) -> usize {
@@ -199,9 +196,12 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     ///
     // TODO(array_chunks): waiting on the `array_chunks` (#![feature(iter_array_chunks)]) that carries
     // the size information to change the output type to &[u8; PAGE_SIZE]
-    pub fn iter_private_pages(&self) -> impl Iterator<Item = &[u8]> {
+    pub fn iter_private_pages<'a>(
+        &'a self,
+        deduper: &'a Deduper,
+    ) -> impl Iterator<Item = &[u8]> + 'a {
         ITreeIterator::new(self)
-            .filter_map(|i| i.data.get_data().map(|d| d.chunks_exact(PAGE_SIZE)))
+            .filter_map(|i| i.data.get_data(deduper).map(|d| d.chunks_exact(PAGE_SIZE)))
             .flatten()
     }
 }

@@ -16,7 +16,7 @@ enum RefDiffState {
 
 /// Create an interval tree from a privately mapped region (by removing zero pages)
 pub(crate) fn create_anon_itree_from_zero_page(
-    data: Vec<u8>,
+    data: &[u8],
     virtual_base: u64,
     intervals: &mut Vec<Interval<AnonIntervalData>>,
 ) {
@@ -63,7 +63,7 @@ pub(crate) fn create_anon_itree_from_zero_page(
 
 /// Create an interval tree from a privately mapped region (by removing zero pages)
 pub(crate) fn create_ref_itree_from_zero_page(
-    data: Vec<u8>,
+    data: &[u8],
     virtual_base: u64,
     intervals: &mut Vec<Interval<RefIntervalData>>,
 ) {
@@ -123,7 +123,7 @@ pub(crate) fn create_ref_itree_from_zero_page(
 /// Create an interval tree by diffing a base (reference file) with an overlay (saved data)
 pub(crate) fn create_itree_from_diff(
     base: &[u8],
-    overlay: Vec<u8>,
+    overlay: &[u8],
     virtual_base: u64,
     intervals: &mut Vec<Interval<RefIntervalData>>,
 ) {
@@ -245,23 +245,22 @@ pub(crate) fn create_itree_from_diff(
 /// Materialize the raw intervals by stealing data from the data
 fn materialize_raw_anon_intervals(
     raw_intervals: Vec<RawInterval>,
-    mut data: Vec<u8>,
+    data: &[u8],
     intervals: &mut Vec<Interval<AnonIntervalData>>,
 ) {
     intervals.reserve(raw_intervals.len());
-    // note: the raw intervals are sorted by ascending order of offset
     raw_intervals
         .into_iter()
-        .rev()
         .map(|raw| {
             assert!(!raw.is_zero());
             if raw.is_empty() {
                 Interval::default()
             } else {
                 let len = raw.len();
-                let mut ival_data = data.split_off(raw.offset as usize);
-                let _ = ival_data.split_off(len as usize); // discard extra data (may have been shared)
-                Interval::new(raw.start, raw.end, AnonIntervalData::Data(ival_data))
+                let data_begin = raw.offset as usize;
+                let data_end = (raw.offset + len) as usize;
+                let ival_data = data[data_begin..data_end].to_vec();
+                Interval::new(raw.start, raw.end, AnonIntervalData::Owned(ival_data))
             }
         })
         .for_each(|i| intervals.push(i))
@@ -270,14 +269,12 @@ fn materialize_raw_anon_intervals(
 /// Materialize the raw intervals by stealing data from the data
 fn materialize_raw_ref_intervals(
     raw_intervals: Vec<RawInterval>,
-    mut data: Vec<u8>,
+    data: &[u8],
     intervals: &mut Vec<Interval<RefIntervalData>>,
 ) {
     intervals.reserve(raw_intervals.len());
-    // note: the raw intervals are sorted by ascending order of offset
     raw_intervals
         .into_iter()
-        .rev()
         .map(|raw| {
             if raw.is_empty() {
                 Interval::default()
@@ -285,9 +282,10 @@ fn materialize_raw_ref_intervals(
                 Interval::new(raw.start, raw.end, RefIntervalData::Zero)
             } else {
                 let len = raw.len();
-                let mut ival_data = data.split_off(raw.offset as usize);
-                let _ = ival_data.split_off(len as usize); // discard extra data (may have been shared)
-                Interval::new(raw.start, raw.end, RefIntervalData::Data(ival_data))
+                let data_begin = raw.offset as usize;
+                let data_end = (raw.offset + len) as usize;
+                let ival_data = data[data_begin..data_end].to_vec();
+                Interval::new(raw.start, raw.end, RefIntervalData::Owned(ival_data))
             }
         })
         .for_each(|i| intervals.push(i))
@@ -295,17 +293,18 @@ fn materialize_raw_ref_intervals(
 
 #[cfg(test)]
 mod test {
+    use crate::deduper::Deduper;
     use crate::itree::ITree;
 
     use super::*;
 
-    fn create_anon_from_zero(data: Vec<u8>, virtual_range: (u64, u64)) -> ITree<AnonIntervalData> {
+    fn create_anon_from_zero(data: &[u8], virtual_range: (u64, u64)) -> ITree<AnonIntervalData> {
         let mut intervals = Vec::new();
         create_anon_itree_from_zero_page(data, virtual_range.0, &mut intervals);
         ITree::build(intervals, virtual_range).unwrap()
     }
 
-    fn create_ref_from_zero(data: Vec<u8>, virtual_range: (u64, u64)) -> ITree<RefIntervalData> {
+    fn create_ref_from_zero(data: &[u8], virtual_range: (u64, u64)) -> ITree<RefIntervalData> {
         let mut intervals = Vec::new();
         create_ref_itree_from_zero_page(data, virtual_range.0, &mut intervals);
         ITree::build(intervals, virtual_range).unwrap()
@@ -313,7 +312,7 @@ mod test {
 
     fn create_from_diff(
         base: &[u8],
-        overlay: Vec<u8>,
+        overlay: &[u8],
         virtual_range: (u64, u64),
     ) -> ITree<RefIntervalData> {
         let mut intervals = Vec::new();
@@ -324,14 +323,15 @@ mod test {
     #[test]
     // test that it can create an interval tree no zero pages
     fn create_anon_zero_0() {
-        let data = vec![0xff; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let data = &[0xff; 0x1000 * 5];
 
         let itree = create_anon_from_zero(data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![Interval::new(
                 0x0000,
                 0x5000,
-                AnonIntervalData::Data(vec![0xff; 0x1000 * 5]),
+                AnonIntervalData::Owned(vec![0xff; 0x1000 * 5]),
             )],
             (0x0000, 0x5000),
         )
@@ -342,7 +342,7 @@ mod test {
         assert_eq!(itree.private_data_size(), 0x1000 * 5);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0x1000 * 3);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -354,9 +354,10 @@ mod test {
     #[test]
     // test that it can create an interval tree all zero pages
     fn create_anon_zero_1() {
-        let data = vec![0x00; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let data = [0x00; 0x1000 * 5];
 
-        let itree = create_anon_from_zero(data, (0x0000, 0x5000));
+        let itree = create_anon_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(vec![], (0x0000, 0x5000)).unwrap();
 
         assert_eq!(itree.nodes, target_itree.nodes);
@@ -364,22 +365,23 @@ mod test {
         assert_eq!(itree.private_data_size(), 0);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree with a trailing zero range
     fn create_anon_zero_2() {
-        let mut data = vec![0x00u8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x2000..0x3000].fill(0xff);
 
-        let itree = create_anon_from_zero(data, (0x0000, 0x5000));
+        let itree = create_anon_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![
-                Interval::new(0x0000, 0x1000, AnonIntervalData::Data(vec![0xff; 0x1000])),
-                Interval::new(0x2000, 0x3000, AnonIntervalData::Data(vec![0xff; 0x1000])),
+                Interval::new(0x0000, 0x1000, AnonIntervalData::Owned(vec![0xff; 0x1000])),
+                Interval::new(0x2000, 0x3000, AnonIntervalData::Owned(vec![0xff; 0x1000])),
             ],
             (0x0000, 0x5000),
         )
@@ -390,7 +392,7 @@ mod test {
         assert_eq!(itree.private_data_size(), 0x1000 * 2);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 2);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next(), None);
@@ -399,15 +401,16 @@ mod test {
     #[test]
     // test that it can create an interval tree with a trailing data range
     fn create_anon_zero_3() {
-        let mut data = vec![0x00u8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x3000..0x5000].fill(0xff);
 
-        let itree = create_anon_from_zero(data, (0x0000, 0x5000));
+        let itree = create_anon_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![
-                Interval::new(0x0000, 0x1000, AnonIntervalData::Data(vec![0xff; 0x1000])),
-                Interval::new(0x3000, 0x5000, AnonIntervalData::Data(vec![0xff; 0x2000])),
+                Interval::new(0x0000, 0x1000, AnonIntervalData::Owned(vec![0xff; 0x1000])),
+                Interval::new(0x3000, 0x5000, AnonIntervalData::Owned(vec![0xff; 0x2000])),
             ],
             (0x0000, 0x5000),
         )
@@ -417,19 +420,26 @@ mod test {
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 3);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 2);
+
+        let mut it = itree.iter_private_pages(&deduper);
+        assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
+        assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
+        assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
+        assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree no zero pages
     fn create_ref_zero_0() {
-        let data = vec![0xff; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let data = [0xff; 0x1000 * 5];
 
-        let itree = create_ref_from_zero(data, (0x0000, 0x5000));
+        let itree = create_ref_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![Interval::new(
                 0x0000,
                 0x5000,
-                RefIntervalData::Data(vec![0xff; 0x1000 * 5]),
+                RefIntervalData::Owned(vec![0xff; 0x1000 * 5]),
             )],
             (0x0000, 0x5000),
         )
@@ -440,7 +450,7 @@ mod test {
         assert_eq!(itree.private_data_size(), 0x1000 * 5);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0x1000 * 3);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -452,9 +462,10 @@ mod test {
     #[test]
     // test that it can create an interval tree all zero pages
     fn create_ref_zero_1() {
-        let data = vec![0x00; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let data = [0x00; 0x1000 * 5];
 
-        let itree = create_ref_from_zero(data, (0x0000, 0x5000));
+        let itree = create_ref_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![Interval::new(0x0000, 0x5000, RefIntervalData::Zero)],
             (0x0000, 0x5000),
@@ -466,23 +477,24 @@ mod test {
         assert_eq!(itree.private_data_size(), 0);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 3 * 0x1000);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree with a trailing zero range
     fn create_ref_zero_2() {
-        let mut data = vec![0x00u8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x2000..0x3000].fill(0xff);
 
-        let itree = create_ref_from_zero(data, (0x0000, 0x5000));
+        let itree = create_ref_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![
-                Interval::new(0x0000, 0x1000, RefIntervalData::Data(vec![0xff; 0x1000])),
+                Interval::new(0x0000, 0x1000, RefIntervalData::Owned(vec![0xff; 0x1000])),
                 Interval::new(0x1000, 0x2000, RefIntervalData::Zero),
-                Interval::new(0x2000, 0x3000, RefIntervalData::Data(vec![0xff; 0x1000])),
+                Interval::new(0x2000, 0x3000, RefIntervalData::Owned(vec![0xff; 0x1000])),
                 Interval::new(0x3000, 0x5000, RefIntervalData::Zero),
             ],
             (0x0000, 0x5000),
@@ -494,7 +506,7 @@ mod test {
         assert_eq!(itree.private_data_size(), 0x1000 * 2);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 4 * 0x1000);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next(), None);
@@ -503,16 +515,17 @@ mod test {
     #[test]
     // test that it can create an interval tree with a trailing data range
     fn create_ref_zero_3() {
-        let mut data = vec![0x00u8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x3000..0x5000].fill(0xff);
 
-        let itree = create_ref_from_zero(data, (0x0000, 0x5000));
+        let itree = create_ref_from_zero(&data, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![
-                Interval::new(0x0000, 0x1000, RefIntervalData::Data(vec![0xff; 0x1000])),
+                Interval::new(0x0000, 0x1000, RefIntervalData::Owned(vec![0xff; 0x1000])),
                 Interval::new(0x1000, 0x3000, RefIntervalData::Zero),
-                Interval::new(0x3000, 0x5000, RefIntervalData::Data(vec![0xff; 0x2000])),
+                Interval::new(0x3000, 0x5000, RefIntervalData::Owned(vec![0xff; 0x2000])),
             ],
             (0x0000, 0x5000),
         )
@@ -523,7 +536,7 @@ mod test {
         assert_eq!(itree.private_data_size(), 0x1000 * 3);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 4);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -533,10 +546,11 @@ mod test {
     #[test]
     // test that it can create an interval tree when there is no difference
     fn create_diff_0() {
-        let base = vec![0xffu8; 0x1000 * 5];
-        let overlay = vec![0xffu8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let base = [0xffu8; 0x1000 * 5];
+        let overlay = [0xffu8; 0x1000 * 5];
 
-        let itree = create_from_diff(&base, overlay, (0x0000, 0x5000));
+        let itree = create_from_diff(&base, &overlay, (0x0000, 0x5000));
         let target_itree = ITree::build(vec![], (0x0000, 0x5000)).unwrap();
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0x1000 * 0);
@@ -544,22 +558,23 @@ mod test {
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
         assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree when there is no similarity
     fn create_diff_1() {
-        let base = vec![0xffu8; 0x1000 * 5];
-        let overlay = vec![0x88u8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let base = [0xffu8; 0x1000 * 5];
+        let overlay = [0x88u8; 0x1000 * 5];
 
-        let itree = create_from_diff(&base, overlay, (0x0000, 0x5000));
+        let itree = create_from_diff(&base, &overlay, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![Interval::new(
                 0x0000,
                 0x5000,
-                RefIntervalData::Data(vec![0x88u8; 0x1000 * 5]),
+                RefIntervalData::Owned(vec![0x88u8; 0x1000 * 5]),
             )],
             (0x0000, 0x5000),
         )
@@ -570,7 +585,7 @@ mod test {
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
         assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
@@ -582,10 +597,11 @@ mod test {
     #[test]
     // test that it can create an interval tree when the overlay is zero
     fn create_diff_2() {
-        let base = vec![0xffu8; 0x1000 * 5];
-        let overlay = vec![0x00u8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let base = [0xffu8; 0x1000 * 5];
+        let overlay = [0x00u8; 0x1000 * 5];
 
-        let itree = create_from_diff(&base, overlay, (0x0000, 0x5000));
+        let itree = create_from_diff(&base, &overlay, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![Interval::new(0x0000, 0x5000, RefIntervalData::Zero)],
             (0x0000, 0x5000),
@@ -597,7 +613,7 @@ mod test {
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
         assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
     }
 
@@ -605,17 +621,18 @@ mod test {
     // test that it can create an interval tree when the overlay is bigger than the base
     // include the fact that the overlay over-region may have zero pages
     fn create_diff_3() {
-        let base = vec![0xffu8; 0x1000 * 1];
-        let mut overlay = vec![0xffu8; 0x1000 * 5];
+        let deduper = Deduper::default();
+        let base = [0xffu8; 0x1000 * 1];
+        let mut overlay = [0xffu8; 0x1000 * 5];
         overlay[0x4000..].fill(0x00);
 
-        let itree = create_from_diff(&base, overlay, (0x0000, 0x5000));
+        let itree = create_from_diff(&base, &overlay, (0x0000, 0x5000));
         let target_itree = ITree::build(
             vec![
                 Interval::new(
                     0x1000,
                     0x4000,
-                    RefIntervalData::Data(vec![0xffu8; 0x1000 * 3]),
+                    RefIntervalData::Owned(vec![0xffu8; 0x1000 * 3]),
                 ),
                 Interval::new(0x4000, 0x5000, RefIntervalData::Zero),
             ],
@@ -628,7 +645,7 @@ mod test {
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 4);
         assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 1);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -640,8 +657,9 @@ mod test {
     //  - include overlay over-extension with trailing zeroes
     //  - include sparse pages
     fn create_diff_4() {
-        let base = vec![0xffu8; 0x1000 * 6];
-        let mut overlay = vec![0x00u8; 0x1000 * 10];
+        let deduper = Deduper::default();
+        let base = [0xffu8; 0x1000 * 6];
+        let mut overlay = [0x00u8; 0x1000 * 10];
         overlay[0x0000..0x1000].fill(0xff); // same
         overlay[0x1000..0x2000].fill(0x00); // zero
         overlay[0x2000..0x3000].fill(0x00); // zero
@@ -654,19 +672,19 @@ mod test {
         overlay[0x8000..0x9000].fill(0xff); // non-zero
         overlay[0x9000..0xa000].fill(0x00); // zero
 
-        let itree = create_from_diff(&base, overlay, (0x0000, 0xa000));
+        let itree = create_from_diff(&base, &overlay, (0x0000, 0xa000));
         let target_itree = ITree::build(
             vec![
                 Interval::new(0x1000, 0x3000, RefIntervalData::Zero),
                 Interval::new(
                     0x3000,
                     0x4000,
-                    RefIntervalData::Data(vec![0xaa; 0x1000 * 1]),
+                    RefIntervalData::Owned(vec![0xaa; 0x1000 * 1]),
                 ),
                 Interval::new(
                     0x5000,
                     0x7000,
-                    RefIntervalData::Data({
+                    RefIntervalData::Owned({
                         let mut v = vec![0x00; 0x1000 * 2];
                         v[..0x1000].fill(0xaa);
                         v[0x1000..].fill(0xff);
@@ -677,7 +695,7 @@ mod test {
                 Interval::new(
                     0x8000,
                     0x9000,
-                    RefIntervalData::Data(vec![0xff; 0x1000 * 1]),
+                    RefIntervalData::Owned(vec![0xff; 0x1000 * 1]),
                 ),
                 Interval::new(0x9000, 0xa000, RefIntervalData::Zero),
             ],
@@ -692,7 +710,7 @@ mod test {
         assert_eq!(itree.mapped_subregion_size(0x0000, 0xa000), 0x1000 * 8);
         assert_eq!(itree.not_mapped_subregion_size(0x0000, 0xa000), 0x1000 * 2);
 
-        let mut it = itree.iter_private_pages();
+        let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xaa; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xaa; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);

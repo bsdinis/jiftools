@@ -77,6 +77,7 @@ impl JifRaw {
         let written = write_to_page_alignment(w, cursor, &zero_page)?;
         cursor += written;
 
+        // data segments
         if cursor != self.data_offset as usize {
             eprintln!(
                 "WARN: cursor ({:#x}) did not match up with expected data offset ({:#x})",
@@ -99,27 +100,23 @@ impl JifRaw {
             }
         }
 
-        let mut written = 0;
         for ((start, end), data) in self.data_segments.iter() {
-            while written < *start {
+            while (cursor as u64) < *start {
                 eprintln!(
                     "WARN: cursor ({:#x}) is behind the requested range to write [{:#x}, {:#x})",
-                    self.data_offset + written,
-                    self.data_offset + start,
-                    self.data_offset + end
+                    cursor, start, end
                 );
                 let page = [0u8; PAGE_SIZE];
-                let to_write = std::cmp::min(PAGE_SIZE, (start - written) as usize);
+                let to_write = std::cmp::min(PAGE_SIZE, *start as usize - cursor);
                 w.write_all(&page[..to_write])?;
-                written += to_write as u64;
+                cursor += to_write;
             }
 
             let len = data.len() as u64;
             assert_eq!(len, end - start, "length does not match the range");
             w.write_all(data)?;
-            written += len;
+            cursor += len as usize;
         }
-        cursor += written as usize;
         Ok(cursor)
     }
 }

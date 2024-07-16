@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::deduper::{DedupToken, Deduper};
 use crate::error::{ITreeNodeError, IntervalError, JifError, JifResult};
 
 /// Interval representation
@@ -27,7 +28,8 @@ pub struct RawInterval {
 /// Data for an anonymous segment resolved by an interval
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum AnonIntervalData {
-    Data(Vec<u8>),
+    Owned(Vec<u8>),
+    Ref(DedupToken),
 
     #[default]
     None,
@@ -36,7 +38,8 @@ pub enum AnonIntervalData {
 /// Data for a reference segment resolved by an interval
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum RefIntervalData {
-    Data(Vec<u8>),
+    Owned(Vec<u8>),
+    Ref(DedupToken),
     Zero,
 
     #[default]
@@ -49,7 +52,7 @@ pub trait IntervalData {
     fn is_none(&self) -> bool;
     fn is_data(&self) -> bool;
     fn take_data(&mut self) -> Option<Vec<u8>>;
-    fn get_data(&self) -> Option<&[u8]>;
+    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]>;
 }
 
 impl IntervalData for AnonIntervalData {
@@ -60,18 +63,20 @@ impl IntervalData for AnonIntervalData {
         matches!(self, AnonIntervalData::None)
     }
     fn is_data(&self) -> bool {
-        matches!(self, AnonIntervalData::Data(_))
+        matches!(self, AnonIntervalData::Owned(_) | AnonIntervalData::Ref(_))
     }
     fn take_data(&mut self) -> Option<Vec<u8>> {
-        if let AnonIntervalData::Data(ref mut v) = self {
+        if let AnonIntervalData::Owned(ref mut v) = self {
             Some(v.split_off(0))
         } else {
             None
         }
     }
-    fn get_data(&self) -> Option<&[u8]> {
-        if let AnonIntervalData::Data(ref v) = self {
+    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
+        if let AnonIntervalData::Owned(ref v) = self {
             Some(v)
+        } else if let AnonIntervalData::Ref(token) = self {
+            Some(deduper.get(*token))
         } else {
             None
         }
@@ -86,18 +91,20 @@ impl IntervalData for RefIntervalData {
         matches!(self, RefIntervalData::None)
     }
     fn is_data(&self) -> bool {
-        matches!(self, RefIntervalData::Data(_))
+        matches!(self, RefIntervalData::Owned(_) | RefIntervalData::Ref(_))
     }
     fn take_data(&mut self) -> Option<Vec<u8>> {
-        if let RefIntervalData::Data(ref mut v) = self {
+        if let RefIntervalData::Owned(ref mut v) = self {
             Some(v.split_off(0))
         } else {
             None
         }
     }
-    fn get_data(&self) -> Option<&[u8]> {
-        if let RefIntervalData::Data(ref v) = self {
+    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
+        if let RefIntervalData::Owned(ref v) = self {
             Some(v)
+        } else if let RefIntervalData::Ref(token) = self {
+            Some(deduper.get(*token))
         } else {
             None
         }
@@ -123,11 +130,6 @@ impl<Data: IntervalData> Interval<Data> {
     /// Check if the interval maps to the private data
     pub(crate) fn is_data(&self) -> bool {
         self.data.is_data()
-    }
-
-    /// Take ownership of the underlying data (if it exists)
-    pub(crate) fn take_data(&mut self) -> Option<Vec<u8>> {
-        self.data.take_data()
     }
 
     /// Intersect the interval with another interval
@@ -166,7 +168,8 @@ impl Interval<AnonIntervalData> {
     pub(crate) fn from_raw_anon(
         raw: &RawInterval,
         data_offset: u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
         interval_idx: usize,
         itree_node_idx: usize,
     ) -> JifResult<Self> {
@@ -185,11 +188,12 @@ impl Interval<AnonIntervalData> {
                 raw.offset - data_offset,
                 raw.offset + raw.len() - data_offset,
             );
-            let priv_data = data_map
-                .remove(&data_range)
+            let priv_data_token = offset_idx
+                .get(&data_range)
                 .expect("by construction, the data map should have this data");
+            let priv_data = deduper.get(*priv_data_token);
             assert_eq!(priv_data.len(), (raw.end - raw.start) as usize);
-            let data = AnonIntervalData::Data(priv_data);
+            let data = AnonIntervalData::Ref(*priv_data_token);
             Ok(Interval {
                 start: raw.start,
                 end: raw.end,
@@ -204,7 +208,8 @@ impl Interval<RefIntervalData> {
     pub(crate) fn from_raw_ref(
         raw: &RawInterval,
         data_offset: u64,
-        data_map: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &Deduper,
+        offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> Self {
         if raw.is_empty() {
             Interval::default()
@@ -219,11 +224,12 @@ impl Interval<RefIntervalData> {
                 raw.offset - data_offset,
                 raw.offset + raw.len() - data_offset,
             );
-            let priv_data = data_map
-                .remove(&data_range)
+            let priv_data_token = offset_idx
+                .get(&data_range)
                 .expect("by construction, the data map should have this data");
+            let priv_data = deduper.get(*priv_data_token);
             assert_eq!(priv_data.len(), (raw.end - raw.start) as usize);
-            let data = RefIntervalData::Data(priv_data);
+            let data = RefIntervalData::Ref(*priv_data_token);
             Interval {
                 start: raw.start,
                 end: raw.end,
@@ -244,21 +250,39 @@ impl RawInterval {
 
     pub(crate) fn from_materialized_anon(
         interval: Interval<AnonIntervalData>,
-        data_base_offset: u64,
-        data_size: &mut u64,
-        data: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &mut Deduper,
+        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
+        last_data_offset: &mut u64,
     ) -> Self {
         match interval.data {
             AnonIntervalData::None => RawInterval::default(),
-            AnonIntervalData::Data(interval_data) => {
+            AnonIntervalData::Owned(interval_data) => {
+                let data_len = interval_data.len() as u64;
+                let token = deduper.insert(interval_data);
+                let range = token_map.entry(token).or_insert_with(|| {
+                    let range = (*last_data_offset, *last_data_offset + data_len);
+                    *last_data_offset += data_len;
+                    range
+                });
                 let interval = RawInterval {
                     start: interval.start,
                     end: interval.end,
-                    offset: data_base_offset + *data_size,
+                    offset: range.0,
                 };
-                let data_len = interval_data.len() as u64;
-                data.insert((*data_size, *data_size + data_len), interval_data);
-                *data_size += data_len;
+                interval
+            }
+            AnonIntervalData::Ref(token) => {
+                let data_len = interval.len() as u64;
+                let range = token_map.entry(token).or_insert_with(|| {
+                    let range = (*last_data_offset, *last_data_offset + data_len);
+                    *last_data_offset += data_len;
+                    range
+                });
+                let interval = RawInterval {
+                    start: interval.start,
+                    end: interval.end,
+                    offset: range.0,
+                };
                 interval
             }
         }
@@ -266,9 +290,9 @@ impl RawInterval {
 
     pub(crate) fn from_materialized_ref(
         interval: Interval<RefIntervalData>,
-        data_base_offset: u64,
-        data_size: &mut u64,
-        data: &mut BTreeMap<(u64, u64), Vec<u8>>,
+        deduper: &mut Deduper,
+        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
+        last_data_offset: &mut u64,
     ) -> Self {
         match interval.data {
             RefIntervalData::None => RawInterval::default(),
@@ -277,15 +301,33 @@ impl RawInterval {
                 end: interval.end,
                 offset: u64::MAX,
             },
-            RefIntervalData::Data(interval_data) => {
+            RefIntervalData::Owned(interval_data) => {
+                let data_len = interval_data.len() as u64;
+                let token = deduper.insert(interval_data);
+                let range = token_map.entry(token).or_insert_with(|| {
+                    let range = (*last_data_offset, *last_data_offset + data_len);
+                    *last_data_offset += data_len;
+                    range
+                });
                 let interval = RawInterval {
                     start: interval.start,
                     end: interval.end,
-                    offset: data_base_offset + *data_size,
+                    offset: range.0,
                 };
-                let data_len = interval_data.len() as u64;
-                data.insert((*data_size, *data_size + data_len), interval_data);
-                *data_size += data_len;
+                interval
+            }
+            RefIntervalData::Ref(token) => {
+                let data_len = interval.len() as u64;
+                let range = token_map.entry(token).or_insert_with(|| {
+                    let range = (*last_data_offset, *last_data_offset + data_len);
+                    *last_data_offset += data_len;
+                    range
+                });
+                let interval = RawInterval {
+                    start: interval.start,
+                    end: interval.end,
+                    offset: range.0,
+                };
                 interval
             }
         }
