@@ -623,7 +623,7 @@ mod test {
     // include the fact that the overlay over-region may have zero pages
     fn create_diff_3() {
         let deduper = Deduper::default();
-        let base = [0xffu8; 0x1000 * 1];
+        let base = [0xffu8; 0x1000];
         let mut overlay = [0xffu8; 0x1000 * 5];
         overlay[0x4000..].fill(0x00);
 
@@ -641,10 +641,10 @@ mod test {
         )
         .unwrap();
         assert_eq!(itree.nodes, target_itree.nodes);
-        assert_eq!(itree.zero_byte_size(), 0x1000 * 1);
+        assert_eq!(itree.zero_byte_size(), 0x1000);
         assert_eq!(itree.private_data_size(), 0x1000 * 3);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 4);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 1);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000);
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -680,7 +680,7 @@ mod test {
                 Interval::new(
                     0x3000,
                     0x4000,
-                    RefIntervalData::Owned(vec![0xaa; 0x1000 * 1]),
+                    RefIntervalData::Owned(vec![0xaa; 0x1000]),
                 ),
                 Interval::new(
                     0x5000,
@@ -696,7 +696,7 @@ mod test {
                 Interval::new(
                     0x8000,
                     0x9000,
-                    RefIntervalData::Owned(vec![0xff; 0x1000 * 1]),
+                    RefIntervalData::Owned(vec![0xff; 0x1000]),
                 ),
                 Interval::new(0x9000, 0xa000, RefIntervalData::Zero),
             ],

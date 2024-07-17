@@ -236,13 +236,11 @@ impl JifPheader {
 
                     if data_interval.start != vaddr_range.0 {
                         build_ref_from_zero(itree, *vaddr_range, deduper)?
+                    } else if let Some(overlay) = data_interval.data.get_data(deduper) {
+                        *itree =
+                            build_from_diff(overlay, *vaddr_range, ref_path, *ref_offset)?;
                     } else {
-                        if let Some(overlay) = data_interval.data.get_data(deduper) {
-                            *itree =
-                                build_from_diff(overlay, *vaddr_range, &ref_path, *ref_offset)?;
-                        } else {
-                            panic!("we checked this was a data interval but there was no data");
-                        }
+                        panic!("we checked this was a data interval but there was no data");
                     }
                 }
             }

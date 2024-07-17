@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 
 type Sha256Hash = [u8; 32];
 
-const PLOT_UPSET_PY: &'static str = "
+const PLOT_UPSET_PY: &str = "
 import matplotlib.pyplot as plt
 import upsetplot
 import sys

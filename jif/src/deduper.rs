@@ -46,11 +46,11 @@ impl Deduper {
     }
 
     fn hash(&self, data: &[u8]) -> u64 {
-        use core::hash::Hasher;
+        
 
-        let mut state = self.hash_builder.build_hasher();
-        data.hash(&mut state);
-        state.finish()
+        
+        
+        self.hash_builder.hash_one(data)
     }
 
     pub(crate) fn insert(&mut self, data: Vec<u8>) -> DedupToken {

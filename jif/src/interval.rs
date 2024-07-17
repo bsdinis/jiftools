@@ -273,26 +273,26 @@ impl RawInterval {
                     *last_data_offset += data_len;
                     range
                 });
-                let interval = RawInterval {
+                
+                RawInterval {
                     start: interval.start,
                     end: interval.end,
                     offset: range.0,
-                };
-                interval
+                }
             }
             AnonIntervalData::Ref(token) => {
-                let data_len = interval.len() as u64;
+                let data_len = interval.len();
                 let range = token_map.entry(token).or_insert_with(|| {
                     let range = (*last_data_offset, *last_data_offset + data_len);
                     *last_data_offset += data_len;
                     range
                 });
-                let interval = RawInterval {
+                
+                RawInterval {
                     start: interval.start,
                     end: interval.end,
                     offset: range.0,
-                };
-                interval
+                }
             }
         }
     }
@@ -318,26 +318,26 @@ impl RawInterval {
                     *last_data_offset += data_len;
                     range
                 });
-                let interval = RawInterval {
+                
+                RawInterval {
                     start: interval.start,
                     end: interval.end,
                     offset: range.0,
-                };
-                interval
+                }
             }
             RefIntervalData::Ref(token) => {
-                let data_len = interval.len() as u64;
+                let data_len = interval.len();
                 let range = token_map.entry(token).or_insert_with(|| {
                     let range = (*last_data_offset, *last_data_offset + data_len);
                     *last_data_offset += data_len;
                     range
                 });
-                let interval = RawInterval {
+                
+                RawInterval {
                     start: interval.start,
                     end: interval.end,
                     offset: range.0,
-                };
-                interval
+                }
             }
         }
     }
