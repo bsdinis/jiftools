@@ -406,11 +406,7 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                             )
                         }
                         if selector.itree {
-                            if let Some(anon_itree) = pheader.anon_itree() {
-                                print!("itree: {:?}, ", anon_itree);
-                            } else if let Some(ref_itree) = pheader.ref_itree() {
-                                print!("itree: {:?}, ", ref_itree);
-                            }
+                            print!("itree: {:?}, ", pheader.itree());
                         }
                         if selector.n_itree_nodes {
                             print!("n_itree_nodes: {:?}, ", pheader.n_itree_nodes());

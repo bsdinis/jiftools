@@ -1,8 +1,17 @@
 //! Interval representation
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::{ITreeNodeError, IntervalError, JifError, JifResult};
+
+/// Data source resolved by the [`ITree`]
+#[derive(Clone, Copy)]
+pub enum DataSource {
+    Zero,
+    Shared,
+    Private,
+}
 
 /// Interval representation
 ///
@@ -44,6 +53,25 @@ pub enum RefIntervalData {
 
     #[default]
     None,
+}
+
+impl From<&AnonIntervalData> for DataSource {
+    fn from(value: &AnonIntervalData) -> Self {
+        match value {
+            AnonIntervalData::None => DataSource::Zero,
+            AnonIntervalData::Owned(_) | AnonIntervalData::Ref(_) => DataSource::Private,
+        }
+    }
+}
+
+impl From<&RefIntervalData> for DataSource {
+    fn from(value: &RefIntervalData) -> Self {
+        match value {
+            RefIntervalData::None => DataSource::Shared,
+            RefIntervalData::Owned(_) | RefIntervalData::Ref(_) => DataSource::Private,
+            RefIntervalData::Zero => DataSource::Zero,
+        }
+    }
 }
 
 /// Generic Interval Data
@@ -170,6 +198,17 @@ impl<Data: IntervalData> Interval<Data> {
             self.end - self.start
         }
     }
+
+    /// Compare an address with this interval
+    pub(crate) fn cmp(&self, addr: u64) -> Ordering {
+        if addr < self.start {
+            Ordering::Less
+        } else if addr < self.end {
+            Ordering::Equal
+        } else {
+            Ordering::Greater
+        }
+    }
 }
 
 impl Interval<AnonIntervalData> {
@@ -273,7 +312,7 @@ impl RawInterval {
                     *last_data_offset += data_len;
                     range
                 });
-                
+
                 RawInterval {
                     start: interval.start,
                     end: interval.end,
@@ -287,7 +326,7 @@ impl RawInterval {
                     *last_data_offset += data_len;
                     range
                 });
-                
+
                 RawInterval {
                     start: interval.start,
                     end: interval.end,
@@ -318,7 +357,7 @@ impl RawInterval {
                     *last_data_offset += data_len;
                     range
                 });
-                
+
                 RawInterval {
                     start: interval.start,
                     end: interval.end,
@@ -332,7 +371,7 @@ impl RawInterval {
                     *last_data_offset += data_len;
                     range
                 });
-                
+
                 RawInterval {
                     start: interval.start,
                     end: interval.end,

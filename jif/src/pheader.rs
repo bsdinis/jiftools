@@ -9,7 +9,7 @@ use crate::diff::{
 };
 use crate::error::*;
 use crate::interval::{AnonIntervalData, Interval, IntervalData, RefIntervalData};
-use crate::itree::ITree;
+use crate::itree::{ITree, ITreeView};
 use crate::itree_node::RawITreeNode;
 use crate::jif::JifRaw;
 use crate::utils::{page_align, PAGE_SIZE};
@@ -237,8 +237,7 @@ impl JifPheader {
                     if data_interval.start != vaddr_range.0 {
                         build_ref_from_zero(itree, *vaddr_range, deduper)?
                     } else if let Some(overlay) = data_interval.data.get_data(deduper) {
-                        *itree =
-                            build_from_diff(overlay, *vaddr_range, ref_path, *ref_offset)?;
+                        *itree = build_from_diff(overlay, *vaddr_range, ref_path, *ref_offset)?;
                     } else {
                         panic!("we checked this was a data interval but there was no data");
                     }
@@ -276,28 +275,17 @@ impl JifPheader {
         }
     }
 
-    /// The underlying [`ITree`] for an anonymous segment
-    pub fn anon_itree(&self) -> Option<&ITree<AnonIntervalData>> {
+    /// A view over the underlying [`ITree`]
+    pub fn itree(&self) -> ITreeView {
         match self {
-            JifPheader::Anonymous { itree, .. } => Some(itree),
-            JifPheader::Reference { .. } => None,
-        }
-    }
-
-    /// The underlying [`ITree`] for a reference segment
-    pub fn ref_itree(&self) -> Option<&ITree<RefIntervalData>> {
-        match self {
-            JifPheader::Anonymous { .. } => None,
-            JifPheader::Reference { itree, .. } => Some(itree),
+            JifPheader::Anonymous { itree, .. } => ITreeView::Anon { inner: itree },
+            JifPheader::Reference { itree, .. } => ITreeView::Ref { inner: itree },
         }
     }
 
     /// The size of the [`ITree`] in number of nodes
     pub fn n_itree_nodes(&self) -> usize {
-        match self {
-            JifPheader::Anonymous { itree, .. } => itree.n_nodes(),
-            JifPheader::Reference { itree, .. } => itree.n_nodes(),
-        }
+        self.itree().n_nodes()
     }
 
     /// The pathname of the reference section
@@ -326,10 +314,7 @@ impl JifPheader {
 
     /// Size of the stored data (in Bytes)
     pub fn data_size(&self) -> usize {
-        match self {
-            JifPheader::Anonymous { itree, .. } => itree.private_data_size(),
-            JifPheader::Reference { itree, .. } => itree.private_data_size(),
-        }
+        self.itree().private_data_size()
     }
 
     /// Number of zero pages encoded (by ommission) in this pheader
