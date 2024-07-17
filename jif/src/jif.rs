@@ -4,7 +4,7 @@
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
-use crate::itree::interval::{AnonIntervalData, RefIntervalData};
+use crate::itree::interval::{AnonIntervalData, DataSource, RefIntervalData};
 use crate::itree::itree_node::{ITreeNode, RawITreeNode};
 use crate::itree::ITree;
 use crate::ord::OrdChunk;
@@ -208,6 +208,15 @@ impl Jif {
         self.pheaders
             .iter()
             .flat_map(|phdr| phdr.iter_private_pages(&self.deduper))
+    }
+
+    /// Resolve an address into a [`DataSource`]
+    pub fn resolve(&self, addr: u64) -> Option<DataSource> {
+        let phdr = self
+            .pheaders
+            .iter()
+            .find(|phdr| phdr.virtual_range().0 <= addr && addr < phdr.virtual_range().1)?;
+        Some(phdr.itree().resolve(addr))
     }
 }
 
