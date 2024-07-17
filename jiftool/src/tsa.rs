@@ -1,4 +1,5 @@
-use jif::*;
+use jif::ord::OrdChunk;
+use jif::Jif;
 
 use anyhow::Context;
 use std::collections::HashMap;

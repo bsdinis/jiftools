@@ -1,3 +1,4 @@
+//! Interval representation
 use std::collections::BTreeMap;
 
 use crate::deduper::{DedupToken, Deduper};
@@ -17,7 +18,6 @@ pub struct Interval<Data: IntervalData> {
 ///
 /// We consider an interval valid if `start != u64::MAX` and `end != u64::MAX`
 /// If `offset == u64::MAX` it symbolizes that the interval references the zero page
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RawInterval {
     pub(crate) start: u64,
@@ -48,10 +48,19 @@ pub enum RefIntervalData {
 
 /// Generic Interval Data
 pub trait IntervalData {
+    /// Check if it references the zero page
     fn is_zero(&self) -> bool;
+
+    /// Check if it a non-existing interval
     fn is_none(&self) -> bool;
+
+    /// Check if it has data
     fn is_data(&self) -> bool;
+
+    /// Remove the data, if owned
     fn take_data(&mut self) -> Option<Vec<u8>>;
+
+    /// View the data (whether owned or referenced)
     fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]>;
 }
 

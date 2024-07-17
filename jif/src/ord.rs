@@ -1,3 +1,4 @@
+//! The ordering segments
 use crate::jif::Jif;
 use crate::utils::{is_page_aligned, page_align_down, PAGE_SIZE};
 
@@ -12,6 +13,7 @@ pub struct OrdChunk {
 }
 
 impl OrdChunk {
+    /// The size of the [`OrdChunk`] when serialized on disk
     pub(crate) const fn serialized_size() -> usize {
         2 * std::mem::size_of::<u64>()
     }

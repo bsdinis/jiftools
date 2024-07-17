@@ -1,3 +1,4 @@
+//! Interval tree building logic
 use crate::interval::{AnonIntervalData, Interval, RawInterval, RefIntervalData};
 use crate::utils::{compare_pages, is_page_aligned, is_zero, PageCmp, PAGE_SIZE};
 
@@ -14,7 +15,7 @@ enum RefDiffState {
     AccumulatingZero,
 }
 
-/// Create an interval tree from a privately mapped region (by removing zero pages)
+/// Create an [`ITree`] from a privately mapped region (by removing zero pages)
 pub(crate) fn create_anon_itree_from_zero_page(
     data: &[u8],
     virtual_base: u64,
@@ -61,7 +62,7 @@ pub(crate) fn create_anon_itree_from_zero_page(
     materialize_raw_anon_intervals(raw_intervals, data, intervals)
 }
 
-/// Create an interval tree from a privately mapped region (by removing zero pages)
+/// Create an [`ITree`] from a privately mapped region (by removing zero pages)
 pub(crate) fn create_ref_itree_from_zero_page(
     data: &[u8],
     virtual_base: u64,
@@ -120,7 +121,7 @@ pub(crate) fn create_ref_itree_from_zero_page(
     materialize_raw_ref_intervals(raw_intervals, data, intervals)
 }
 
-/// Create an interval tree by diffing a base (reference file) with an overlay (saved data)
+/// Create an [`ITree`] by diffing a base (reference file) with an overlay (saved data)
 pub(crate) fn create_itree_from_diff(
     base: &[u8],
     overlay: &[u8],
@@ -242,7 +243,7 @@ pub(crate) fn create_itree_from_diff(
     materialize_raw_ref_intervals(raw_intervals, overlay, intervals)
 }
 
-/// Materialize the raw intervals by stealing data from the data
+/// Materialize the [`RawInterval`] by stealing data from the data
 fn materialize_raw_anon_intervals(
     raw_intervals: Vec<RawInterval>,
     data: &[u8],
@@ -266,7 +267,7 @@ fn materialize_raw_anon_intervals(
         .for_each(|i| intervals.push(i))
 }
 
-/// Materialize the raw intervals by stealing data from the data
+/// Materialize the [`RawInterval`] by stealing data from the data
 fn materialize_raw_ref_intervals(
     raw_intervals: Vec<RawInterval>,
     data: &[u8],

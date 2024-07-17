@@ -72,6 +72,7 @@ fn build_hash_multiset(jif: &Jif) -> HashSet<Sha256Hash> {
     jif.iter_private_pages().map(sha256_page).collect()
 }
 
+/// Open the JIF file
 fn open_jif(path: &std::path::Path) -> anyhow::Result<Jif> {
     Jif::from_reader(&mut BufReader::new(
         File::open(path).context("failed to open file")?,
@@ -79,6 +80,8 @@ fn open_jif(path: &std::path::Path) -> anyhow::Result<Jif> {
     .context("failed to read jif")
 }
 
+/// Plot the intersection between the files
+/// Constructs an [upset plot](https://en.wikipedia.org/wiki/UpSet_plot) by shelling out to python
 fn plot_intersections(
     hashes: HashMap<std::path::PathBuf, HashSet<Sha256Hash>>,
     output_filename: PathBuf,

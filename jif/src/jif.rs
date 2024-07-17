@@ -1,3 +1,7 @@
+//! The full JIF representations
+//!
+//! Includes both the raw and materialized variants
+
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
 use crate::interval::{AnonIntervalData, RefIntervalData};
@@ -38,7 +42,7 @@ pub struct JifRaw {
 }
 
 impl Jif {
-    /// Materialize a `Jif` from its raw counterpart
+    /// Materialize a [`Jif`] from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
         let data_map = raw.take_data();
         let (deduper, offset_index) = Deduper::from_data_map(data_map);
@@ -66,12 +70,12 @@ impl Jif {
             .collect()
     }
 
-    /// Read the `Jif` from a file
+    /// Read the [`Jif`] from a file
     pub fn from_reader<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<Self> {
         Jif::from_raw(JifRaw::from_reader(r)?)
     }
 
-    /// Write the `Jif` to a file
+    /// Write the [`Jif`] to a file
     pub fn to_writer<W: Write>(self, w: &mut W) -> JifResult<usize> {
         let raw = JifRaw::from_materialized(self);
         raw.to_writer(w)
@@ -163,17 +167,17 @@ impl Jif {
         &self.ord_chunks
     }
 
-    /// Compute the total number of zero pages encoded (by omission) in the JIF
+    /// Compute the total number of zero pages encoded (by omission) in the [`Jif`]
     pub fn zero_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.zero_pages()).sum()
     }
 
-    /// Compute the total number of private pages stored (directly) in the JIF
+    /// Compute the total number of private pages stored (directly) in the [`Jif`]
     pub fn private_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.private_pages()).sum()
     }
 
-    /// Compute the total number of shared pages referenced by the JIF
+    /// Compute the total number of shared pages referenced by the [`Jif`]
     pub fn shared_pages(&self) -> usize {
         self.pheaders.iter().map(|phdr| phdr.shared_pages()).sum()
     }
@@ -276,7 +280,7 @@ impl JifRaw {
         }
     }
 
-    /// Remove the data from the raw JIF file
+    /// Remove the data from the [`JifRaw`]
     pub fn take_data(&mut self) -> BTreeMap<(u64, u64), Vec<u8>> {
         self.data_segments.split_off(&(0, 0))
     }

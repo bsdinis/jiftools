@@ -1,13 +1,22 @@
+//! Data deduplication logic
+
 use std::collections::hash_map::RandomState;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasher, Hash};
 
+/// Tokens issued by a [`Deduper`]
+///
+/// This new-type ensures that unless there is a bug (i.e., re-using tokens
+/// from a wrong deduper into the new one) any data request will succeed
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DedupToken(u64);
 
+/// The data aggregator to de-duplicate data segments
+///
+/// This holds all the non-owned interval data and is used to deduplicate them
 #[derive(Default)]
 pub struct Deduper {
-    /// map from hash to vector
+    /// map from data hash to the owned data
     canonical: HashMap<u64, Vec<u8>>,
 
     /// hash builder

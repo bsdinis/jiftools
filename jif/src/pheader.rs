@@ -1,3 +1,5 @@
+//! The pheader representation
+
 use std::collections::BTreeMap;
 use std::u64;
 
@@ -69,7 +71,7 @@ pub enum JifPheader {
 /// The "raw" JIF pheader
 ///
 /// This type encodes 1:1 the information as it is serialized in the JIF format
-/// It can be used to construct materialized pheaders with the help of the raw `JifRaw` type.
+/// It can be used to construct materialized pheaders with the help of the raw [`JifRaw`] type.
 pub struct JifRawPheader {
     pub(crate) vbegin: u64,
     pub(crate) vend: u64,
@@ -276,7 +278,7 @@ impl JifPheader {
         }
     }
 
-    /// The underlying interval tree for an anonymous segment
+    /// The underlying [`ITree`] for an anonymous segment
     pub fn anon_itree(&self) -> Option<&ITree<AnonIntervalData>> {
         match self {
             JifPheader::Anonymous { itree, .. } => Some(itree),
@@ -284,7 +286,7 @@ impl JifPheader {
         }
     }
 
-    /// The underlying interval tree for a reference segment
+    /// The underlying [`ITree`] for a reference segment
     pub fn ref_itree(&self) -> Option<&ITree<RefIntervalData>> {
         match self {
             JifPheader::Anonymous { .. } => None,
@@ -292,7 +294,7 @@ impl JifPheader {
         }
     }
 
-    /// The size of the interval tree in number of nodes
+    /// The size of the [`ITree`] in number of nodes
     pub fn n_itree_nodes(&self) -> usize {
         match self {
             JifPheader::Anonymous { itree, .. } => itree.n_nodes(),
@@ -315,11 +317,6 @@ impl JifPheader {
             JifPheader::Reference { ref_offset, .. } => Some(*ref_offset),
         }
     }
-
-    /// The interval tree which encodes the data source of each page
-    // pub fn itree(&self) -> &ITree {
-    // &self.itree
-    // }
 
     /// The protections concerning this vma
     pub fn prot(&self) -> u8 {

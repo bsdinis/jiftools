@@ -1,3 +1,5 @@
+//! Nodes in the interval tree
+
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::JifResult;
 use crate::interval::{AnonIntervalData, Interval, IntervalData, RawInterval, RefIntervalData};
@@ -6,9 +8,9 @@ use std::collections::BTreeMap;
 pub(crate) const FANOUT: usize = 4;
 pub(crate) const IVAL_PER_NODE: usize = FANOUT - 1;
 
-/// Node in a interval tree
+/// Node in a [`crate::itree::ITree`]
 ///
-/// Encodes a series of intervals
+/// Encodes a series of [`Interval`]s
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ITreeNode<Data: IntervalData> {
     pub(crate) ranges: [Interval<Data>; IVAL_PER_NODE],
@@ -16,14 +18,14 @@ pub struct ITreeNode<Data: IntervalData> {
 
 /// Node in a raw interval tree
 ///
-/// Encodes a series of raw intervals
+/// Encodes a series of [`RawInterval`]s
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct RawITreeNode {
     pub(crate) ranges: [RawInterval; IVAL_PER_NODE],
 }
 
 impl ITreeNode<AnonIntervalData> {
-    /// Build an `ITreeNode` for an anonymous segment
+    /// Build an [`ITreeNode`] for an anonymous segment
     pub(crate) fn from_raw_anon(
         raw: &RawITreeNode,
         data_offset: u64,
@@ -49,7 +51,7 @@ impl ITreeNode<AnonIntervalData> {
 }
 
 impl ITreeNode<RefIntervalData> {
-    /// Build an `ITreeNode` for an reference segment
+    /// Build an [`ITreeNode`] for an reference segment
     pub(crate) fn from_raw_ref(
         raw: &RawITreeNode,
         data_offset: u64,
@@ -114,6 +116,7 @@ impl<Data: IntervalData> ITreeNode<Data> {
 }
 
 impl RawITreeNode {
+    /// Size of the [`RawITreeNode`] when serialized
     pub(crate) const fn serialized_size() -> usize {
         IVAL_PER_NODE * RawInterval::serialized_size()
     }

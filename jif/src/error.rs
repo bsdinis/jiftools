@@ -2,7 +2,7 @@
 //!
 //! Encodes the error types possible when parsing/writing and manipulating JIF files
 
-use crate::JIF_MAGIC_HEADER;
+use crate::jif::JIF_MAGIC_HEADER;
 
 /// JIF result type
 pub type JifResult<T> = std::result::Result<T, JifError>;

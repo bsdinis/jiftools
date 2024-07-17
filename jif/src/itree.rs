@@ -1,3 +1,5 @@
+//! The interval tree structure
+
 use crate::deduper::Deduper;
 use crate::error::*;
 use crate::interval::{Interval, IntervalData};
@@ -6,10 +8,17 @@ use crate::utils::PAGE_SIZE;
 
 /// Interval Tree representation
 ///
-/// A balanced B-Tree where each node resolves an interval
-/// into a "data source".
+/// A balanced B-Tree where each node resolves an interval into a "data source".
 ///
-/// For the virtual address range the tree is meant to span,
+/// Depending on the generic [`IntervalData`] parameter, the tree can either be "anonymous" or
+/// "reference" if it is associated with an anonymous VMA or file-backed VMA, respectively.
+///
+/// For an **anonymous** virtual address range the tree is meant to span,
+/// looking up an address can yield 2 options
+///  - Address is found, with a valid offset: means the address is backed by the page at that offset of the JIF file
+///  - Address is not found: means the address is backed by the zero page
+///
+/// For a **file-backed** virtual address range the tree is meant to span,
 /// looking up an address can yield 3 options
 ///  - Address is found, with offset `u64::MAX`: means the address is backed by the zero page
 ///  - Address is found, with a valid offset: means the address is backed by the page at that offset of the JIF file
@@ -91,17 +100,18 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         Ok(ITree { nodes })
     }
 
+    /// Take ownership of the [`ITree`], leaving it empty
     pub fn take(&mut self) -> Self {
         let nodes = self.nodes.split_off(0);
         ITree { nodes }
     }
 
-    /// How many itree nodes will be required given the number of intervals
+    /// How many [`ITreeNode`]s will be required given the number of intervals
     pub const fn n_itree_nodes_from_intervals(n_intervals: usize) -> usize {
         (n_intervals + FANOUT - 2) / (FANOUT - 1)
     }
 
-    /// Build a new interval tree (by balancing the intervals)
+    /// Build a new interval tree (by balancing the input [`Interval`]s)
     pub fn build(mut intervals: Vec<Interval<Data>>, virtual_range: (u64, u64)) -> JifResult<Self> {
         fn fill<Data: IntervalData>(
             nodes: &mut Vec<ITreeNode<Data>>,
@@ -143,17 +153,17 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         ITree::new(nodes, virtual_range)
     }
 
-    /// Size of the interval tree in number of nodes
+    /// Size of the [`ITree`] in number of nodes
     pub fn n_nodes(&self) -> usize {
         self.nodes.len()
     }
 
-    /// Number of intervals in the inteval tree
+    /// Number of intervals in the [`ITree`]
     pub fn n_intervals(&self) -> usize {
         self.nodes.iter().map(|n| n.n_intervals()).sum()
     }
 
-    /// Number of data holding intervals in the inteval tree
+    /// Number of data holding intervals in the [`ITree`]
     pub fn n_data_intervals(&self) -> usize {
         self.nodes.iter().map(|n| n.n_data_intervals()).sum()
     }
