@@ -1,4 +1,3 @@
-use crate::error::*;
 use crate::itree::itree_node::RawITreeNode;
 use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
 use crate::ord::OrdChunk;
@@ -8,12 +7,12 @@ use std::io::Write;
 
 impl JifRaw {
     /// Write a JIF
-    pub fn to_writer<W: Write>(&self, w: &mut W) -> JifResult<usize> {
+    pub fn to_writer<W: Write>(&self, w: &mut W) -> std::io::Result<usize> {
         fn write_to_page_alignment<W: Write>(
             w: &mut W,
             cursor: usize,
             buffer: &[u8; PAGE_SIZE],
-        ) -> JifResult<usize> {
+        ) -> std::io::Result<usize> {
             let delta = page_align(cursor as u64) as usize - cursor;
             if delta > 0 {
                 w.write_all(&buffer[..delta])?;

@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use crate::deduper::{DedupToken, Deduper};
-use crate::error::{ITreeNodeError, IntervalError, JifError, JifResult};
+use crate::error::{IntervalError, IntervalResult};
 
 /// Data source resolved by the [`ITree`]
 #[derive(Clone, Copy)]
@@ -218,19 +218,11 @@ impl Interval<AnonIntervalData> {
         data_offset: u64,
         deduper: &Deduper,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
-        interval_idx: usize,
-        itree_node_idx: usize,
-    ) -> JifResult<Self> {
+    ) -> IntervalResult<Self> {
         if raw.is_empty() {
             Ok(Interval::default())
         } else if raw.is_zero() {
-            Err(JifError::BadITreeNode {
-                itree_node_idx,
-                itree_node_err: ITreeNodeError {
-                    interval_idx,
-                    interval_err: IntervalError::ZeroIntervalInAnon,
-                },
-            })
+            Err(IntervalError::ZeroIntervalInAnon)
         } else {
             let data_range = (
                 raw.offset - data_offset,

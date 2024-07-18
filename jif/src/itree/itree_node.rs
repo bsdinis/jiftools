@@ -1,7 +1,7 @@
 //! Nodes in the interval tree
 
 use crate::deduper::{DedupToken, Deduper};
-use crate::error::JifResult;
+use crate::error::{ITreeNodeError, ITreeNodeResult};
 use crate::itree::interval::{
     AnonIntervalData, Interval, IntervalData, RawInterval, RefIntervalData,
 };
@@ -33,20 +33,16 @@ impl ITreeNode<AnonIntervalData> {
         data_offset: u64,
         deduper: &Deduper,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
-        itree_node_idx: usize,
-    ) -> JifResult<Self> {
+    ) -> ITreeNodeResult<Self> {
         let mut node = ITreeNode::default();
         for (interval_idx, (raw_interval, interval)) in
             raw.ranges.iter().zip(node.ranges.iter_mut()).enumerate()
         {
-            *interval = Interval::from_raw_anon(
-                raw_interval,
-                data_offset,
-                deduper,
-                offset_idx,
-                interval_idx,
-                itree_node_idx,
-            )?;
+            *interval = Interval::from_raw_anon(raw_interval, data_offset, deduper, offset_idx)
+                .map_err(|interval_err| ITreeNodeError::Interval {
+                    interval_idx,
+                    interval_err,
+                })?;
         }
         Ok(node)
     }

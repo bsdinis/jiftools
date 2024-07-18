@@ -31,7 +31,7 @@ pub struct ITree<Data: IntervalData> {
 
 impl<Data: IntervalData + std::default::Default> ITree<Data> {
     /// Construct a new interval tree
-    pub fn new(nodes: Vec<ITreeNode<Data>>, virtual_range: (u64, u64)) -> JifResult<Self> {
+    pub fn new(nodes: Vec<ITreeNode<Data>>, virtual_range: (u64, u64)) -> ITreeResult<Self> {
         let intervals = {
             let mut i = nodes
                 .iter()
@@ -48,10 +48,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             .find(|(start, end)| *start < virtual_range.0 || *end > virtual_range.1)
             .copied()
         {
-            return Err(JifError::InvalidITree {
-                virtual_range,
-                error: ITreeError::IntervalOutOfRange { interval },
-            });
+            return Err(ITreeError::IntervalOutOfRange { interval });
         }
 
         if let Some((interval_1, interval_2)) = intervals
@@ -59,12 +56,9 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             .zip(intervals.iter().skip(1))
             .find(|((_, end), (start, _))| end > start)
         {
-            return Err(JifError::InvalidITree {
-                virtual_range,
-                error: ITreeError::IntersectingInterval {
-                    interval_1: *interval_1,
-                    interval_2: *interval_2,
-                },
+            return Err(ITreeError::IntersectingInterval {
+                interval_1: *interval_1,
+                interval_2: *interval_2,
             });
         }
 
@@ -86,14 +80,11 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         if (virtual_range.1 - virtual_range.0) as usize
             != covered_by_zero + covered_by_private + non_mapped
         {
-            return Err(JifError::InvalidITree {
-                virtual_range,
-                error: ITreeError::RangeNotCovered {
-                    expected_coverage: (virtual_range.1 - virtual_range.0) as usize,
-                    covered_by_zero,
-                    covered_by_private,
-                    non_mapped,
-                },
+            return Err(ITreeError::RangeNotCovered {
+                expected_coverage: (virtual_range.1 - virtual_range.0) as usize,
+                covered_by_zero,
+                covered_by_private,
+                non_mapped,
             });
         }
 
@@ -112,7 +103,10 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     }
 
     /// Build a new interval tree (by balancing the input [`Interval`]s)
-    pub fn build(mut intervals: Vec<Interval<Data>>, virtual_range: (u64, u64)) -> JifResult<Self> {
+    pub fn build(
+        mut intervals: Vec<Interval<Data>>,
+        virtual_range: (u64, u64),
+    ) -> ITreeResult<Self> {
         fn fill<Data: IntervalData>(
             nodes: &mut Vec<ITreeNode<Data>>,
             intervals: &mut Vec<Interval<Data>>,

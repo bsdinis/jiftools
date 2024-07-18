@@ -13,8 +13,13 @@ impl JifRaw {
     pub fn from_reader<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<Self> {
         let header = JifHeader::from_reader(r)?;
 
-        let pheaders = (0..header.n_pheaders)
-            .map(|idx| JifRawPheader::from_reader(r, idx as usize))
+        let pheaders = (0..(header.n_pheaders as usize))
+            .map(|pheader_idx| {
+                JifRawPheader::from_reader(r).map_err(|pheader_err| JifError::BadPheader {
+                    pheader_idx,
+                    pheader_err,
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         let n_itree_nodes = pheaders
@@ -60,14 +65,24 @@ impl JifRaw {
         let to_skip =
             header.itrees_size as i64 - (n_itree_nodes * RawITreeNode::serialized_size()) as i64;
         let itree_nodes = (0..n_itree_nodes)
-            .map(|idx| RawITreeNode::from_reader(r, idx))
+            .map(|itree_node_idx| {
+                RawITreeNode::from_reader(r).map_err(|itree_node_err| JifError::BadITreeNode {
+                    itree_node_idx,
+                    itree_node_err,
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         r.seek_relative(to_skip)?;
 
         // read ord segments
         let n_ords = header.ord_size as usize / OrdChunk::serialized_size();
         let ord_chunks = (0..n_ords)
-            .map(|idx| OrdChunk::from_reader(r, idx))
+            .map(|ord_chunk_idx| {
+                OrdChunk::from_reader(r).map_err(|ord_chunk_err| JifError::BadOrdChunk {
+                    ord_chunk_idx,
+                    ord_chunk_err,
+                })
+            })
             .filter(|o| o.as_ref().map(|x| !x.is_empty()).unwrap_or(true))
             .collect::<Result<Vec<_>, _>>()?;
 

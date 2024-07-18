@@ -134,12 +134,12 @@ impl JifPheader {
     }
 
     /// Build an itree for a particular pheader
-    pub fn build_itree(&mut self, deduper: &Deduper) -> JifResult<()> {
+    pub fn build_itree(&mut self, deduper: &Deduper) -> ITreeResult<()> {
         fn build_anon_from_zero(
             itree: &mut ITree<AnonIntervalData>,
             virtual_range: (u64, u64),
             deduper: &Deduper,
-        ) -> JifResult<()> {
+        ) -> ITreeResult<()> {
             let orig_itree = itree.take();
             let mut intervals = vec![];
             let data_intervals: Vec<Interval<AnonIntervalData>> = orig_itree
@@ -166,7 +166,7 @@ impl JifPheader {
             virtual_range: (u64, u64),
             ref_path: &str,
             ref_offset: u64,
-        ) -> JifResult<ITree<RefIntervalData>> {
+        ) -> ITreeResult<ITree<RefIntervalData>> {
             let mut file = {
                 let mut f = BufReader::new(File::open(ref_path)?);
                 f.seek(SeekFrom::Start(ref_offset))?;
@@ -192,7 +192,7 @@ impl JifPheader {
             itree: &mut ITree<RefIntervalData>,
             virtual_range: (u64, u64),
             deduper: &Deduper,
-        ) -> JifResult<()> {
+        ) -> ITreeResult<()> {
             let orig_itree = itree.take();
             let mut intervals = orig_itree
                 .iter_intervals()

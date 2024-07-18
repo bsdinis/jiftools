@@ -76,7 +76,7 @@ impl Jif {
     }
 
     /// Write the [`Jif`] to a file
-    pub fn to_writer<W: Write>(self, w: &mut W) -> JifResult<usize> {
+    pub fn to_writer<W: Write>(self, w: &mut W) -> std::io::Result<usize> {
         let raw = JifRaw::from_materialized(self);
         raw.to_writer(w)
     }
@@ -117,8 +117,13 @@ impl Jif {
 
     /// Construct the interval trees of all the pheaders
     pub fn build_itrees(&mut self) -> JifResult<()> {
-        for p in self.pheaders.iter_mut() {
-            p.build_itree(&self.deduper)?;
+        for pheader in self.pheaders.iter_mut() {
+            pheader
+                .build_itree(&self.deduper)
+                .map_err(|error| JifError::InvalidITree {
+                    virtual_range: pheader.virtual_range(),
+                    error,
+                })?;
         }
 
         Ok(())
@@ -358,11 +363,19 @@ impl JifRaw {
             .skip(index)
             .take(n)
             .map(|(itree_node_idx, raw)| {
-                ITreeNode::from_raw_anon(raw, self.data_offset, deduper, offset_idx, itree_node_idx)
+                ITreeNode::from_raw_anon(raw, self.data_offset, deduper, offset_idx).map_err(
+                    |itree_node_err| JifError::BadITreeNode {
+                        itree_node_idx,
+                        itree_node_err,
+                    },
+                )
             })
             .collect::<JifResult<Vec<_>>>()?;
 
-        ITree::new(nodes, virtual_range)
+        ITree::new(nodes, virtual_range).map_err(|error| JifError::InvalidITree {
+            virtual_range,
+            error,
+        })
     }
 
     /// Get a reference interval tree from an (index, len) range
@@ -390,7 +403,10 @@ impl JifRaw {
             .map(|raw| ITreeNode::from_raw_ref(raw, self.data_offset, deduper, offset_idx))
             .collect::<Vec<_>>();
 
-        ITree::new(nodes, virtual_range)
+        ITree::new(nodes, virtual_range).map_err(|error| JifError::InvalidITree {
+            virtual_range,
+            error,
+        })
     }
 }
 

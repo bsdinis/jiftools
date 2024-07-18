@@ -1,20 +1,18 @@
-use crate::error::*;
-
 use std::io::{BufReader, Read, Seek};
 
 pub(crate) const PAGE_SIZE: usize = 0x1000;
 
-pub(crate) fn read_u8<R: Read>(r: &mut R, buffer: &mut [u8; 1]) -> JifResult<u8> {
+pub(crate) fn read_u8<R: Read>(r: &mut R, buffer: &mut [u8; 1]) -> std::io::Result<u8> {
     r.read_exact(buffer)?;
     Ok(buffer[0])
 }
 
-pub(crate) fn read_u32<R: Read>(r: &mut R, buffer: &mut [u8; 4]) -> JifResult<u32> {
+pub(crate) fn read_u32<R: Read>(r: &mut R, buffer: &mut [u8; 4]) -> std::io::Result<u32> {
     r.read_exact(buffer)?;
     Ok(u32::from_le_bytes(*buffer))
 }
 
-pub(crate) fn read_u64<R: Read>(r: &mut R, buffer: &mut [u8; 8]) -> JifResult<u64> {
+pub(crate) fn read_u64<R: Read>(r: &mut R, buffer: &mut [u8; 8]) -> std::io::Result<u64> {
     r.read_exact(buffer)?;
     Ok(u64::from_le_bytes(*buffer))
 }
@@ -23,7 +21,7 @@ pub(crate) fn read_u64<R: Read>(r: &mut R, buffer: &mut [u8; 8]) -> JifResult<u6
 /// return the new position
 pub(crate) fn seek_to_alignment<R: Read + Seek, const ALIGNMENT: usize>(
     r: &mut BufReader<R>,
-) -> JifResult<u64> {
+) -> std::io::Result<u64> {
     let cur = r.stream_position()?;
     let delta = cur % ALIGNMENT as u64;
     if delta != 0 {
@@ -36,7 +34,7 @@ pub(crate) fn seek_to_alignment<R: Read + Seek, const ALIGNMENT: usize>(
 
 /// seek to the next aligned page
 /// return the new position
-pub(crate) fn seek_to_page<R: Read + Seek>(r: &mut BufReader<R>) -> JifResult<u64> {
+pub(crate) fn seek_to_page<R: Read + Seek>(r: &mut BufReader<R>) -> std::io::Result<u64> {
     seek_to_alignment::<R, PAGE_SIZE>(r)
 }
 
