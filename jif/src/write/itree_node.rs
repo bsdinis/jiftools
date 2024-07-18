@@ -1,5 +1,5 @@
 use crate::error::*;
-use crate::itree_node::RawITreeNode;
+use crate::itree::itree_node::RawITreeNode;
 
 use std::io::Write;
 

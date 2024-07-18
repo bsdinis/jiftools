@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 use std::u64;
 
 use crate::deduper::{DedupToken, Deduper};
-use crate::diff::{
+use crate::error::*;
+use crate::itree::diff::{
     create_anon_itree_from_zero_page, create_itree_from_diff, create_ref_itree_from_zero_page,
 };
-use crate::error::*;
-use crate::interval::{AnonIntervalData, Interval, IntervalData, RefIntervalData};
+use crate::itree::interval::{AnonIntervalData, Interval, IntervalData, RefIntervalData};
+use crate::itree::itree_node::RawITreeNode;
 use crate::itree::{ITree, ITreeView};
-use crate::itree_node::RawITreeNode;
 use crate::jif::JifRaw;
 use crate::utils::{page_align, PAGE_SIZE};
 

@@ -1,5 +1,5 @@
 //! Interval tree building logic
-use crate::interval::{AnonIntervalData, Interval, RawInterval, RefIntervalData};
+use crate::itree::interval::{AnonIntervalData, Interval, RawInterval, RefIntervalData};
 use crate::utils::{compare_pages, is_page_aligned, is_zero, PageCmp, PAGE_SIZE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -554,9 +554,9 @@ mod test {
         let itree = create_from_diff(&base, &overlay, (0x0000, 0x5000));
         let target_itree = ITree::build(vec![], (0x0000, 0x5000)).unwrap();
         assert_eq!(itree.nodes, target_itree.nodes);
-        assert_eq!(itree.zero_byte_size(), 0x1000 * 0);
-        assert_eq!(itree.private_data_size(), 0x1000 * 0);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
+        assert_eq!(itree.zero_byte_size(), 0);
+        assert_eq!(itree.private_data_size(), 0);
+        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0);
         assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
 
         let mut it = itree.iter_private_pages(&deduper);
@@ -581,10 +581,10 @@ mod test {
         )
         .unwrap();
         assert_eq!(itree.nodes, target_itree.nodes);
-        assert_eq!(itree.zero_byte_size(), 0x1000 * 0);
+        assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 5);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0);
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
@@ -610,9 +610,9 @@ mod test {
         .unwrap();
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0x1000 * 5);
-        assert_eq!(itree.private_data_size(), 0x1000 * 0);
+        assert_eq!(itree.private_data_size(), 0);
         assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 0);
+        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0);
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
@@ -677,11 +677,7 @@ mod test {
         let target_itree = ITree::build(
             vec![
                 Interval::new(0x1000, 0x3000, RefIntervalData::Zero),
-                Interval::new(
-                    0x3000,
-                    0x4000,
-                    RefIntervalData::Owned(vec![0xaa; 0x1000]),
-                ),
+                Interval::new(0x3000, 0x4000, RefIntervalData::Owned(vec![0xaa; 0x1000])),
                 Interval::new(
                     0x5000,
                     0x7000,
@@ -693,11 +689,7 @@ mod test {
                     }),
                 ),
                 Interval::new(0x7000, 0x8000, RefIntervalData::Zero),
-                Interval::new(
-                    0x8000,
-                    0x9000,
-                    RefIntervalData::Owned(vec![0xff; 0x1000]),
-                ),
+                Interval::new(0x8000, 0x9000, RefIntervalData::Owned(vec![0xff; 0x1000])),
                 Interval::new(0x9000, 0xa000, RefIntervalData::Zero),
             ],
             (0x0000, 0xa000),

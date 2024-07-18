@@ -2,7 +2,9 @@
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::JifResult;
-use crate::interval::{AnonIntervalData, Interval, IntervalData, RawInterval, RefIntervalData};
+use crate::itree::interval::{
+    AnonIntervalData, Interval, IntervalData, RawInterval, RefIntervalData,
+};
 use std::collections::BTreeMap;
 
 pub(crate) const FANOUT: usize = 4;

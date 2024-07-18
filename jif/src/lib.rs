@@ -3,11 +3,8 @@
 //! `jif` is a library for parsing, dumping and manipulating JIF (Junction Image Format) files
 
 pub mod deduper;
-mod diff;
 pub mod error;
-pub mod interval;
 pub mod itree;
-pub mod itree_node;
 mod jif;
 pub mod ord;
 pub mod pheader;

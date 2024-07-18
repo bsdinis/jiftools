@@ -1,6 +1,6 @@
 use crate::error::*;
-use crate::interval::RawInterval;
-use crate::itree_node::{RawITreeNode, IVAL_PER_NODE};
+use crate::itree::interval::RawInterval;
+use crate::itree::itree_node::{RawITreeNode, IVAL_PER_NODE};
 
 use std::io::Read;
 

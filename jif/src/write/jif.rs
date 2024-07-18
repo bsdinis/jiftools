@@ -1,5 +1,5 @@
 use crate::error::*;
-use crate::itree_node::RawITreeNode;
+use crate::itree::itree_node::RawITreeNode;
 use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
 use crate::ord::OrdChunk;
 use crate::utils::{is_page_aligned, page_align, PAGE_SIZE};

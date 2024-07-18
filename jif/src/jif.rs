@@ -4,9 +4,9 @@
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
-use crate::interval::{AnonIntervalData, RefIntervalData};
+use crate::itree::interval::{AnonIntervalData, RefIntervalData};
+use crate::itree::itree_node::{ITreeNode, RawITreeNode};
 use crate::itree::ITree;
-use crate::itree_node::{ITreeNode, RawITreeNode};
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::page_align;

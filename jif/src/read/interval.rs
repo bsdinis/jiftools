@@ -1,5 +1,5 @@
 use crate::error::*;
-use crate::interval::RawInterval;
+use crate::itree::interval::RawInterval;
 use crate::utils::{is_page_aligned, read_u64};
 
 use std::io::Read;

@@ -1,5 +1,5 @@
 use crate::error::*;
-use crate::interval::RawInterval;
+use crate::itree::interval::RawInterval;
 
 use std::io::Write;
 
