@@ -66,10 +66,7 @@ if __name__ == '__main__':
     plt.title(title, fontfamily='sans-serif', fontsize=15)
     plt.legend()
     plt.savefig(output)
-    print('Total: {}'.format(len(all_x)))
-    print('Private: {}'.format(len(private_x)))
-    print('NonZero: {}'.format(len(no_zero_x)))
-
+    print('{}, \\t{}, \\t{}, \\t{}'.format(title, len(all_x), len(private_x), len(no_zero_x)))
 ";
 
 #[derive(Parser, Debug)]
@@ -109,26 +106,36 @@ fn plot_timeplot(
         .arg(format!("{}", output_filename.display()))
         .arg(title)
         .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()
         .context("failed to spawn python plotter: make sure the python packages are installed (matplotlib)")?;
 
-    let mut stdin = child
-        .stdin
-        .take()
-        .context("failed to open pipe to plotter")?;
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("failed to open pipe to plotter")?;
 
-    for entry in tsa {
-        let timestamp_ms = entry.usecs as f64 / 1000.0;
+        for entry in tsa {
+            let timestamp_ms = entry.usecs as f64 / 1000.0;
 
-        let data_source = match jif.resolve(entry.addr as u64) {
-            Some(DataSource::Zero) => "zero",
-            Some(DataSource::Private) => "private",
-            Some(DataSource::Shared) => "private",
-            None => "unknown",
-        };
-        stdin.write_all(format!("{} {}\n", timestamp_ms, data_source).as_bytes())?;
+            let data_source = match jif.resolve(entry.addr as u64) {
+                Some(DataSource::Zero) => "zero",
+                Some(DataSource::Private) => "private",
+                Some(DataSource::Shared) => "private",
+                None => "unknown",
+            };
+            stdin.write_all(format!("{} {}\n", timestamp_ms, data_source).as_bytes())?;
+        }
     }
 
+    let output = child
+        .wait_with_output()
+        .context("failed to execute python plotter")?;
+    print!(
+        "{}",
+        String::from_utf8(output.stdout).context("unparseable output")?
+    );
     Ok(())
 }
 
