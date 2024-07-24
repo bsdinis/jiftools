@@ -28,7 +28,7 @@ if __name__ == '__main__':
     if len(sys.argv) != 3:
         sys.exit('usage: ./plot_time.py <output filename> <plot title>')
 
-    output=sys.argv[1]
+    output='{}.pdf'.format(sys.argv[1])
     title=sys.argv[2]
 
     all_x = list()
