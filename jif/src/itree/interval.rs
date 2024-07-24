@@ -6,7 +6,7 @@ use crate::deduper::{DedupToken, Deduper};
 use crate::error::{IntervalError, IntervalResult};
 
 /// Data source resolved by the [`ITree`]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DataSource {
     Zero,
     Shared,

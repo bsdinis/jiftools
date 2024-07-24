@@ -335,3 +335,169 @@ impl<Data: IntervalData + std::fmt::Debug> std::fmt::Debug for ITree<Data> {
         f.debug_list().entries(self.nodes.iter()).finish()
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test {
+    use crate::itree::interval::{AnonIntervalData, RefIntervalData};
+
+    use super::*;
+
+    pub(crate) const VADDR_BEGIN: u64 = 0x100000;
+    pub(crate) const VADDR_END: u64 = 0x200000;
+    pub(crate) const VADDRS: [u64; 17] = [
+        VADDR_BEGIN,
+        0x110000,
+        0x120000,
+        0x130000,
+        0x140000,
+        0x150000,
+        0x160000,
+        0x170000,
+        0x180000,
+        0x190000,
+        0x1a0000,
+        0x1b0000,
+        0x1c0000,
+        0x1d0000,
+        0x1e0000,
+        0x1f0000,
+        VADDR_END,
+    ];
+
+    pub(crate) fn gen_empty<Data: IntervalData + Default>() -> ITree<Data> {
+        ITree::new(Vec::new(), (VADDR_BEGIN, VADDR_END)).unwrap()
+    }
+
+    pub(crate) fn gen_anon_data(cnt: &mut usize, interval_size: usize) -> AnonIntervalData {
+        let data = match *cnt % 2 {
+            0 => AnonIntervalData::Owned(vec![*cnt as u8; interval_size]),
+            1 => AnonIntervalData::None,
+            _ => std::unreachable!("mod 2 = [0, 1]"),
+        };
+
+        *cnt += 1;
+        data
+    }
+
+    pub(crate) fn gen_anon_tree() -> ITree<AnonIntervalData> {
+        let mut interval_cnt = 0;
+        let intervals = VADDRS
+            .iter()
+            .copied()
+            .zip(VADDRS.iter().copied().skip(1))
+            .filter_map(|(start, end)| {
+                let data = gen_anon_data(&mut interval_cnt, (end - start) as usize);
+                if data.is_none() {
+                    None
+                } else {
+                    Some(Interval { start, end, data })
+                }
+            })
+            .collect();
+
+        ITree::build(intervals, (VADDR_BEGIN, VADDR_END)).unwrap()
+    }
+
+    pub(crate) fn gen_ref_data(cnt: &mut usize, interval_size: usize) -> RefIntervalData {
+        let data = match *cnt % 3 {
+            0 => RefIntervalData::Owned(vec![*cnt as u8; interval_size]),
+            1 => RefIntervalData::Zero,
+            2 => RefIntervalData::None,
+            _ => std::unreachable!("mod 3 = [0, 1, 2]"),
+        };
+
+        *cnt += 1;
+        data
+    }
+
+    pub(crate) fn gen_ref_tree() -> ITree<RefIntervalData> {
+        let mut interval_cnt = 0;
+        let intervals = VADDRS
+            .iter()
+            .copied()
+            .zip(VADDRS.iter().copied().skip(1))
+            .filter_map(|(start, end)| {
+                let data = gen_ref_data(&mut interval_cnt, (end - start) as usize);
+                if data.is_none() {
+                    None
+                } else {
+                    Some(Interval { start, end, data })
+                }
+            })
+            .collect();
+
+        ITree::build(intervals, (VADDR_BEGIN, VADDR_END)).unwrap()
+    }
+
+    fn test_empty<Data: IntervalData>() {
+        let tree: ITree<RefIntervalData> = gen_empty();
+        assert_eq!(tree.n_nodes(), 0);
+        assert_eq!(tree.n_intervals(), 0);
+        assert_eq!(tree.n_data_intervals(), 0);
+        assert_eq!(tree.iter_intervals().count(), 0);
+        assert_eq!(tree.zero_byte_size(), 0);
+        assert_eq!(tree.private_data_size(), 0);
+        assert_eq!(tree.mapped_subregion_size(VADDR_BEGIN, VADDR_END), 0);
+        assert_eq!(
+            tree.not_mapped_subregion_size(VADDR_BEGIN, VADDR_END),
+            (VADDR_END - VADDR_BEGIN) as usize
+        );
+        let deduper = Deduper::default();
+        assert_eq!(tree.iter_private_pages(&deduper).count(), 0);
+        assert_eq!(tree.resolve(0), None);
+        assert_eq!(tree.resolve(VADDR_BEGIN), None);
+        assert_eq!(tree.resolve((VADDR_BEGIN + VADDR_END) / 2), None);
+        assert_eq!(tree.resolve(VADDR_END), None);
+    }
+
+    #[test]
+    fn test_empty_anon() {
+        test_empty::<AnonIntervalData>()
+    }
+    #[test]
+    fn test_empty_ref() {
+        test_empty::<RefIntervalData>()
+    }
+
+    #[test]
+    fn test_anon_tree() {
+        let tree = gen_anon_tree();
+        let mut cnt = 0;
+        for addr in VADDRS
+            .iter()
+            .zip(VADDRS.iter().skip(1))
+            .map(|(start, end)| (start + end) / 2)
+        {
+            let resolve = tree.resolve(addr);
+            match cnt % 2 {
+                0 => assert!(matches!(
+                    &resolve.unwrap().data,
+                    &AnonIntervalData::Owned(_)
+                )),
+                1 => assert!(resolve.is_none()),
+                _ => unreachable!(),
+            };
+            cnt += 1
+        }
+    }
+
+    #[test]
+    fn test_ref_tree() {
+        let tree = gen_ref_tree();
+        let mut cnt = 0;
+        for addr in VADDRS
+            .iter()
+            .zip(VADDRS.iter().skip(1))
+            .map(|(start, end)| (start + end) / 2)
+        {
+            let resolve = tree.resolve(addr);
+            match cnt % 3 {
+                0 => assert!(matches!(&resolve.unwrap().data, &RefIntervalData::Owned(_))),
+                1 => assert!(matches!(&resolve.unwrap().data, &RefIntervalData::Zero)),
+                2 => assert!(resolve.is_none()),
+                _ => unreachable!(),
+            };
+            cnt += 1
+        }
+    }
+}

@@ -88,3 +88,19 @@ impl<'a> std::fmt::Debug for ITreeView<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::itree::test::gen_empty;
+
+    #[test]
+    fn ref_resolve() {
+        let itree: ITree<RefIntervalData> = gen_empty();
+        let view = ITreeView::Ref { inner: &itree };
+        assert_eq!(view.resolve(0), DataSource::Shared);
+        assert_eq!(view.resolve(0x100000), DataSource::Shared);
+        assert_eq!(view.resolve(0x150000), DataSource::Shared);
+        assert_eq!(view.resolve(0x200000), DataSource::Shared);
+    }
+}

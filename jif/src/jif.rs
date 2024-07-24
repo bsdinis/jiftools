@@ -203,6 +203,13 @@ impl Jif {
             .map(|(idx, _pheader)| idx)
     }
 
+    // Find the pheader (by index) that maps a particular address
+    pub fn mapping_pheader(&self, vaddr: u64) -> Option<&JifPheader> {
+        self.pheaders
+            .iter()
+            .find(|pheader| pheader.mapps_addr(vaddr))
+    }
+
     /// Iterate over all the private pages
     pub fn iter_private_pages(&self) -> impl Iterator<Item = &[u8]> {
         self.pheaders
