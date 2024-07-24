@@ -10,6 +10,7 @@
 //! $ jiftool orig.jif ordered.jif add-ord tsa.ord # add an ordering section
 //! ```
 use jif::*;
+use tracer_format::read_trace;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -85,11 +86,11 @@ fn main() -> anyhow::Result<()> {
                 Some(fname) => {
                     let file =
                         BufReader::new(File::open(fname).context("failed to open ord list")?);
-                    read_tsa_log(file)?
+                    read_trace(file).context("failed to read trace")?
                 }
                 None => {
                     let stdin = std::io::stdin();
-                    read_tsa_log(stdin.lock())?
+                    read_trace(stdin.lock()).context("failed to read trace")?
                 }
             };
 
