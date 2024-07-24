@@ -89,9 +89,6 @@ pub(crate) const RAW_COMMAND_USAGE: &str = "raw command: selection over the raw 
 
 jif                                select the whole JIF
 jif.data                           size of the data section
-jif.zero_pages                     number of zero pages
-jif.private_pages                  == data % PAGE_SIZE
-jif.pages                          total number of pages
 
 strings                            select the strings in the JIF
 
