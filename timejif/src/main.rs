@@ -71,10 +71,7 @@ if __name__ == '__main__':
 
 #[derive(Parser, Debug)]
 #[command(version)]
-/// readjif: read and query JIF files
-///
-/// Thie tool parses the JIF (optionally materializing it) and allows for querying and viewing the
-/// JIF
+/// timejif: plot timing information about first faults of pages
 struct Cli {
     /// JIF file to read from
     #[arg(value_hint = clap::ValueHint::FilePath)]
@@ -122,7 +119,7 @@ fn plot_timeplot(
             let data_source = match jif.resolve(entry.addr as u64) {
                 Some(DataSource::Zero) => "zero",
                 Some(DataSource::Private) => "private",
-                Some(DataSource::Shared) => "private",
+                Some(DataSource::Shared) => "shared",
                 None => "unknown",
             };
             stdin.write_all(format!("{} {}\n", timestamp_ms, data_source).as_bytes())?;
