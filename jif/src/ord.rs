@@ -1,9 +1,9 @@
 //! The ordering segments
 use crate::jif::Jif;
-use crate::utils::{is_page_aligned, page_align_down, PAGE_SIZE};
+use crate::utils::{page_align_down, PAGE_SIZE};
 
 /// An ordering chunk represents a range of pages to pre-fault
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct OrdChunk {
     /// Page number of the first page
     pub(crate) vaddr: u64,
@@ -25,7 +25,6 @@ impl OrdChunk {
         OrdChunk {
             vaddr: page_align_down(vaddr),
 
-            // n pages needs to fit in 12 bits
             n_pages,
         }
     }
@@ -50,7 +49,7 @@ impl OrdChunk {
     ///
     /// Return false if it is not possible to merge the page
     pub fn merge_page(&mut self, jif: &Jif, vaddr: u64) -> bool {
-        assert!(is_page_aligned(vaddr));
+        let vaddr = page_align_down(vaddr);
 
         if self.n_pages == 0 {
             self.vaddr = vaddr;
@@ -81,4 +80,52 @@ impl OrdChunk {
             false
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn empty_ord() {
+        let ord = OrdChunk::new(0x1234, 0);
+        assert_eq!(
+            ord,
+            OrdChunk {
+                vaddr: 0x1000,
+                n_pages: 0
+            }
+        );
+        assert!(ord.is_empty());
+    }
+
+    #[test]
+    fn single_page_ord() {
+        let ord = OrdChunk::new(0x1234, 1);
+        assert_eq!(
+            ord,
+            OrdChunk {
+                vaddr: 0x1000,
+                n_pages: 1
+            }
+        );
+        assert!(!ord.is_empty());
+        assert_eq!(ord.last_page_addr(), 0x1000);
+    }
+
+    #[test]
+    fn multi_page_ord() {
+        let ord = OrdChunk::new(0x1234, 10);
+        assert_eq!(
+            ord,
+            OrdChunk {
+                vaddr: 0x1000,
+                n_pages: 10
+            }
+        );
+        assert!(!ord.is_empty());
+        assert_eq!(ord.last_page_addr(), 0xa000);
+    }
+
+    // TODO(test): create a test Jif file to test `merge_page`
 }

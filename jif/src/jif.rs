@@ -212,11 +212,10 @@ impl Jif {
 
     /// Resolve an address into a [`DataSource`]
     pub fn resolve(&self, addr: u64) -> Option<DataSource> {
-        let phdr = self
-            .pheaders
+        self.pheaders
             .iter()
-            .find(|phdr| phdr.virtual_range().0 <= addr && addr < phdr.virtual_range().1)?;
-        Some(phdr.itree().resolve(addr))
+            .find(|phdr| phdr.mapps_addr(addr))
+            .map(|phdr| phdr.resolve(addr))
     }
 }
 
@@ -448,4 +447,9 @@ impl std::fmt::Debug for JifRaw {
             )
             .finish()
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    // TODO(test): create fake JIF for ord testing
 }

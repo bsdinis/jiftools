@@ -46,10 +46,6 @@ impl Deduper {
     }
 
     fn hash(&self, data: &[u8]) -> u64 {
-        
-
-        
-        
         self.hash_builder.hash_one(data)
     }
 
@@ -98,4 +94,9 @@ impl Deduper {
 
         data_map
     }
+}
+
+#[cfg(test)]
+mod test {
+    // TODO(test)
 }

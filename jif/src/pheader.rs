@@ -8,7 +8,9 @@ use crate::error::*;
 use crate::itree::diff::{
     create_anon_itree_from_zero_page, create_itree_from_diff, create_ref_itree_from_zero_page,
 };
-use crate::itree::interval::{AnonIntervalData, Interval, IntervalData, RefIntervalData};
+use crate::itree::interval::{
+    AnonIntervalData, DataSource, Interval, IntervalData, RefIntervalData,
+};
 use crate::itree::itree_node::RawITreeNode;
 use crate::itree::{ITree, ITreeView};
 use crate::jif::JifRaw;
@@ -265,6 +267,11 @@ impl JifPheader {
     /// Check whether this pheader maps a particular address
     pub(crate) fn mapps_addr(&self, addr: u64) -> bool {
         self.virtual_range().0 <= addr && addr < self.virtual_range().1
+    }
+
+    /// Resolve an address
+    pub(crate) fn resolve(&self, addr: u64) -> DataSource {
+        self.itree().resolve(addr)
     }
 
     /// The virtual address space range that this pheader maps
@@ -596,4 +603,9 @@ impl std::fmt::Debug for JifRawPheader {
             )
             .finish()
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    // TODO(test): create fake JIF pheader
 }
