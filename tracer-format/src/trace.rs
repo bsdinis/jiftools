@@ -42,4 +42,162 @@ pub fn dedup_and_sort(log: Vec<TimestampedAccess>) -> Vec<TimestampedAccess> {
     log
 }
 
-// TODO: add tests
+#[cfg(test)]
+mod test {
+    use crate::ParseTimestampedAccessError;
+
+    use super::*;
+
+    #[test]
+    fn parse_ok() {
+        assert_eq!(read_trace("".as_bytes()).unwrap(), vec![]);
+        assert_eq!(
+            read_trace("01234: 0xdead".as_bytes()).unwrap(),
+            vec![TimestampedAccess {
+                usecs: 1234,
+                addr: 0xdead
+            }]
+        );
+        assert_eq!(
+            read_trace("01234: 0xdead".as_bytes()).unwrap(),
+            vec![TimestampedAccess {
+                usecs: 1234,
+                addr: 0xdead
+            }]
+        );
+        assert_eq!(
+            read_trace("01234: 0xdead\n4: 1234".as_bytes()).unwrap(),
+            vec![
+                TimestampedAccess {
+                    usecs: 1234,
+                    addr: 0xdead
+                },
+                TimestampedAccess {
+                    usecs: 4,
+                    addr: 1234
+                },
+            ]
+        );
+        assert_eq!(
+            read_trace("01234: 0xdead\n4: 1234\n1234: 0xdead".as_bytes()).unwrap(),
+            vec![
+                TimestampedAccess {
+                    usecs: 1234,
+                    addr: 0xdead
+                },
+                TimestampedAccess {
+                    usecs: 4,
+                    addr: 1234
+                },
+                TimestampedAccess {
+                    usecs: 1234,
+                    addr: 0xdead
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_err() {
+        assert!(matches!(
+            read_trace("s".as_bytes()),
+            Err(TraceReadError::ParseError {
+                line: 0,
+                error: ParseTimestampedAccessError::MissingDelimiter(_)
+            })
+        ));
+        assert!(matches!(
+            read_trace("a: 0xdead".as_bytes()),
+            Err(TraceReadError::ParseError {
+                line: 0,
+                error: ParseTimestampedAccessError::BadTimestamp(_)
+            })
+        ));
+        assert!(matches!(
+            read_trace("01234: 0xdead\n4: 1234\n4: asdf".as_bytes()),
+            Err(TraceReadError::ParseError {
+                line: 2,
+                error: ParseTimestampedAccessError::BadAddr(_)
+            })
+        ));
+    }
+
+    #[test]
+    fn dedup_and_sort_0() {
+        let original = vec![
+            TimestampedAccess {
+                usecs: 1,
+                addr: 0x1000,
+            },
+            TimestampedAccess {
+                usecs: 2,
+                addr: 0x3000,
+            },
+            TimestampedAccess {
+                usecs: 3,
+                addr: 0x2000,
+            },
+        ];
+
+        assert_eq!(
+            dedup_and_sort(original),
+            vec![
+                TimestampedAccess {
+                    usecs: 1,
+                    addr: 0x1000
+                },
+                TimestampedAccess {
+                    usecs: 2,
+                    addr: 0x3000
+                },
+                TimestampedAccess {
+                    usecs: 3,
+                    addr: 0x2000
+                },
+            ]
+        )
+    }
+    #[test]
+    fn dedup_and_sort_1() {
+        let original = vec![
+            TimestampedAccess {
+                usecs: 1,
+                addr: 0x1000,
+            },
+            TimestampedAccess {
+                usecs: 2,
+                addr: 0x3000,
+            },
+            TimestampedAccess {
+                usecs: 4,
+                addr: 0x2000,
+            },
+            TimestampedAccess {
+                usecs: 3,
+                addr: 0x2000,
+            },
+            TimestampedAccess {
+                usecs: 2,
+                addr: 0x1000,
+            },
+        ];
+
+        assert_eq!(
+            dedup_and_sort(original),
+            vec![
+                TimestampedAccess {
+                    usecs: 1,
+                    addr: 0x1000
+                },
+                TimestampedAccess {
+                    usecs: 2,
+                    addr: 0x3000
+                },
+                TimestampedAccess {
+                    usecs: 3,
+                    addr: 0x2000
+                },
+            ]
+        )
+    }
+}
