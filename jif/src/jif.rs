@@ -142,10 +142,12 @@ impl Jif {
             ordering_info
                 .into_iter()
                 .filter_map(|chunk| {
-                    if chunk.is_empty() {
+                    // we ignore unmapped addresses
+                    // there might've been a recorded chunk that was only mapped after
+                    // the snapshot point, which means it will be mapped after the restore is
+                    // complete (i.e., there is no way to prefetch)
+                    if chunk.is_empty() || jif.mapping_pheader_idx(chunk.vaddr).is_none() {
                         None
-                    } else if jif.mapping_pheader_idx(chunk.vaddr).is_none() {
-                        Some(Err(JifError::UnmappedOrderingAddr(chunk.vaddr)))
                     } else {
                         Some(Ok(chunk))
                     }

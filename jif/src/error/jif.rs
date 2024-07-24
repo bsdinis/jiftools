@@ -73,9 +73,6 @@ pub enum JifError {
         virtual_range: (u64, u64),
         error: ITreeError,
     },
-
-    /// A requested ordering address is not mapped by this JIF
-    UnmappedOrderingAddr(u64),
 }
 
 impl std::fmt::Display for JifError {
@@ -129,10 +126,6 @@ impl std::fmt::Display for JifError {
                 "could not find full interval tree at [{}; {}) (there are only {} itree nodes)",
                 index, len, n_nodes
             )),
-            JifError::UnmappedOrderingAddr(addr) => f.write_fmt(format_args!(
-                "cannot insert addr {:#x} into ordering info: addr is not mapped by any pheader",
-                addr
-            )),
         }
     }
 }
@@ -150,7 +143,6 @@ impl std::error::Error for JifError {
             JifError::InvalidITree { error, .. } => Some(error),
             JifError::DataSegmentNotFound { .. } => None,
             JifError::ITreeNotFound { .. } => None,
-            JifError::UnmappedOrderingAddr(_) => None,
         }
     }
 }
