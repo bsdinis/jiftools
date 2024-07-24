@@ -25,6 +25,12 @@ import matplotlib.pyplot as plt
 import sys
 
 if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        sys.exit('usage: ./plot_time.py <output filename> <plot title>')
+
+    output=sys.argv[1]
+    title=sys.argv[2]
+
     all_x = list()
     all_y = list()
 
@@ -57,9 +63,9 @@ if __name__ == '__main__':
 
     plt.xlabel('Time (ms)', fontfamily='sans-serif', fontsize=12)
     plt.ylabel('Number of unique pages', fontfamily='sans-serif', fontsize=12)
-    plt.title('Number of unique pages over time', fontfamily='sans-serif', fontsize=15)
+    plt.title(title, fontfamily='sans-serif', fontsize=15)
     plt.legend()
-    plt.savefig(sys.argv[1])
+    plt.savefig(output)
     print('Total: {}'.format(len(all_x)))
     print('Private: {}'.format(len(private_x)))
     print('NonZero: {}'.format(len(no_zero_x)))
@@ -84,18 +90,24 @@ struct Cli {
     /// Output file
     #[arg(value_hint = clap::ValueHint::FilePath)]
     output_file: std::path::PathBuf,
+
+    /// Title of the plot
+    #[arg(long)]
+    title: Option<String>,
 }
 
 /// Plot the time plot
-fn plot_intersections(
+fn plot_timeplot(
     jif: &Jif,
     tsa: &[TimestampedAccess],
+    title: String,
     output_filename: PathBuf,
 ) -> anyhow::Result<()> {
     let mut child = Command::new("python3")
         .arg("-c")
         .arg(PLOT_TIME_PY)
         .arg(format!("{}", output_filename.display()))
+        .arg(title)
         .stdin(Stdio::piped())
         .spawn()
         .context("failed to spawn python plotter: make sure the python packages are installed (matplotlib)")?;
@@ -127,6 +139,12 @@ fn main() -> anyhow::Result<()> {
     ))
     .context("failed to read jif")?;
 
+    let default_title = cli
+        .ord_file
+        .file_stem()
+        .and_then(|x| x.to_str().map(|y| y.to_string()))
+        .unwrap_or_else(|| "<default>".to_string());
+
     let trace = {
         let file = BufReader::new(File::open(cli.ord_file).context("failed to open ord list")?);
         let trace = read_trace(file).context("failed to read the trace")?;
@@ -134,5 +152,10 @@ fn main() -> anyhow::Result<()> {
         Ok::<Vec<TimestampedAccess>, anyhow::Error>(dedup_and_sort(trace))
     }?;
 
-    plot_intersections(&jif, &trace, cli.output_file)
+    plot_timeplot(
+        &jif,
+        &trace,
+        cli.title.unwrap_or(default_title),
+        cli.output_file,
+    )
 }
