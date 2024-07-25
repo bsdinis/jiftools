@@ -68,17 +68,14 @@ impl Deduper {
         token_map: BTreeMap<DedupToken, (u64, u64)>,
     ) -> BTreeMap<(u64, u64), Vec<u8>> {
         let intervals = {
-            let mut v = token_map
-                .into_iter()
-                .map(|(tok, range)| (range, tok))
-                .collect::<Vec<_>>();
-            v.sort_by_key(|(range, _tok)| *range);
+            let mut v = token_map.into_iter().collect::<Vec<_>>();
+            v.sort_by_key(|(_tok, range)| *range);
             v
         };
 
         let mut data_map = BTreeMap::new();
-        let mut last_issued = intervals.first().map(|(range, _tok)| range.0).unwrap_or(0);
-        for (range, tok) in intervals {
+        let mut last_issued = intervals.first().map(|(_tok, range)| range.0).unwrap_or(0);
+        for (tok, range) in intervals {
             assert_eq!(
                 range.0, last_issued,
                 "badly constructed data segment: there is a gap"
@@ -98,5 +95,62 @@ impl Deduper {
 
 #[cfg(test)]
 mod test {
-    // TODO(test)
+    use super::*;
+    #[test]
+    fn dedup_simple() {
+        let mut deduper = Deduper::default();
+        let token1 = deduper.insert(vec![0xa; 0x1000]);
+        let token2 = deduper.insert(vec![0xa; 0x1000]);
+        let token3 = deduper.insert(vec![0xb; 0x1000]);
+        assert_eq!(token1, token2);
+        assert_ne!(token1, token3);
+
+        assert_eq!(deduper.get(token1), &[0xa; 0x1000]);
+        assert_eq!(deduper.get(token2), &[0xa; 0x1000]);
+        assert_eq!(deduper.get(token3), &[0xb; 0x1000]);
+    }
+
+    #[test]
+    fn from_data_map() {
+        let mut data_map = BTreeMap::new();
+        data_map.insert((0x1000, 0x2000), vec![0x1; 0x1000]);
+        data_map.insert((0x2000, 0x3000), vec![0x1; 0x1000]);
+        data_map.insert((0x3000, 0x4000), vec![0x1; 0x1000]);
+
+        let (deduper, offset_index) = Deduper::from_data_map(data_map.clone());
+        assert_eq!(offset_index.len(), 3);
+        assert_eq!(
+            offset_index.get(&(0x1000, 0x2000)),
+            offset_index.get(&(0x2000, 0x3000))
+        );
+        assert_eq!(
+            offset_index.get(&(0x2000, 0x3000)),
+            offset_index.get(&(0x3000, 0x4000))
+        );
+
+        let token = offset_index.get(&(0x1000, 0x2000)).unwrap();
+        assert_eq!(deduper.get(*token), &[0x1; 0x1000]);
+    }
+
+    #[test]
+    fn destructure() {
+        let mut deduper = Deduper::default();
+        let token1 = deduper.insert(vec![0xa; 0x1000]);
+        let token2 = deduper.insert(vec![0xb; 0x1000]);
+
+        let mut token_map = BTreeMap::new();
+        token_map.insert(token1, (0x1000, 0x2000));
+        token_map.insert(token2, (0x2000, 0x3000));
+
+        let data_map = deduper.destructure(token_map);
+        assert_eq!(data_map.len(), 2);
+        assert_eq!(
+            data_map.get(&(0x1000, 0x2000)).unwrap().as_slice(),
+            &[0xa; 0x1000]
+        );
+        assert_eq!(
+            data_map.get(&(0x2000, 0x3000)).unwrap().as_slice(),
+            &[0xb; 0x1000]
+        );
+    }
 }
