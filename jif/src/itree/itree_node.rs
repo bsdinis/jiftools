@@ -81,7 +81,6 @@ impl<Data: IntervalData> ITreeNode<Data> {
     }
 
     /// For this node, find how many virtual address space bytes are backed by the zero page
-    // TODO(ref/anon): check if this makes sense here
     pub(crate) fn zero_byte_size(&self) -> usize {
         self.ranges()
             .iter()
