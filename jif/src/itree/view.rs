@@ -92,15 +92,74 @@ impl<'a> std::fmt::Debug for ITreeView<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::itree::test::gen_empty;
+    use crate::itree::test::*;
 
     #[test]
-    fn ref_resolve() {
+    fn anon_resolve_empty() {
+        let itree: ITree<AnonIntervalData> = gen_empty();
+        let view = ITreeView::Anon { inner: &itree };
+        assert_eq!(view.resolve(0), DataSource::Zero);
+        assert_eq!(view.resolve(VADDR_BEGIN), DataSource::Zero);
+        assert_eq!(
+            view.resolve((VADDR_BEGIN + VADDR_END) / 2),
+            DataSource::Zero
+        );
+        assert_eq!(view.resolve(VADDR_END), DataSource::Zero);
+    }
+
+    #[test]
+    fn ref_resolve_empty() {
         let itree: ITree<RefIntervalData> = gen_empty();
         let view = ITreeView::Ref { inner: &itree };
         assert_eq!(view.resolve(0), DataSource::Shared);
-        assert_eq!(view.resolve(0x100000), DataSource::Shared);
-        assert_eq!(view.resolve(0x150000), DataSource::Shared);
-        assert_eq!(view.resolve(0x200000), DataSource::Shared);
+        assert_eq!(view.resolve(VADDR_BEGIN), DataSource::Shared);
+        assert_eq!(
+            view.resolve((VADDR_BEGIN + VADDR_END) / 2),
+            DataSource::Shared
+        );
+        assert_eq!(view.resolve(VADDR_END), DataSource::Shared);
+    }
+
+    #[test]
+    fn anon_resolve_filled() {
+        let itree: ITree<AnonIntervalData> = gen_anon_tree();
+        let view = ITreeView::Anon { inner: &itree };
+
+        let mut cnt = 0;
+        for addr in VADDRS
+            .iter()
+            .zip(VADDRS.iter().skip(1))
+            .map(|(start, end)| (start + end) / 2)
+        {
+            let resolve = view.resolve(addr);
+            match cnt % 2 {
+                0 => assert_eq!(resolve, DataSource::Private),
+                1 => assert_eq!(resolve, DataSource::Zero),
+                _ => unreachable!(),
+            };
+            cnt += 1
+        }
+    }
+
+    #[test]
+    fn ref_resolve_filled() {
+        let itree: ITree<RefIntervalData> = gen_ref_tree();
+        let view = ITreeView::Ref { inner: &itree };
+
+        let mut cnt = 0;
+        for addr in VADDRS
+            .iter()
+            .zip(VADDRS.iter().skip(1))
+            .map(|(start, end)| (start + end) / 2)
+        {
+            let resolve = view.resolve(addr);
+            match cnt % 3 {
+                0 => assert_eq!(resolve, DataSource::Private),
+                1 => assert_eq!(resolve, DataSource::Zero),
+                2 => assert_eq!(resolve, DataSource::Shared),
+                _ => unreachable!(),
+            };
+            cnt += 1
+        }
     }
 }
