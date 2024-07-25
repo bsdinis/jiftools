@@ -458,5 +458,16 @@ impl std::fmt::Debug for JifRaw {
 
 #[cfg(test)]
 pub(crate) mod test {
-    // TODO(test): create fake JIF for ord testing
+    use super::*;
+    use crate::pheader::test::gen_pheader;
+    pub(crate) fn gen_jif(vaddrs: &[(u64, u64)]) -> Jif {
+        Jif {
+            pheaders: vaddrs
+                .into_iter()
+                .map(|range| gen_pheader(*range))
+                .collect(),
+            ord_chunks: vec![],
+            deduper: Deduper::default(),
+        }
+    }
 }

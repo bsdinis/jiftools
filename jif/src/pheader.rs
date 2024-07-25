@@ -607,5 +607,12 @@ impl std::fmt::Debug for JifRawPheader {
 
 #[cfg(test)]
 pub(crate) mod test {
-    // TODO(test): create fake JIF pheader
+    use super::*;
+    pub(crate) fn gen_pheader(vaddr_range: (u64, u64)) -> JifPheader {
+        JifPheader::Anonymous {
+            vaddr_range,
+            itree: ITree::new(vec![], vaddr_range).unwrap(),
+            prot: Prot::Read as u8,
+        }
+    }
 }

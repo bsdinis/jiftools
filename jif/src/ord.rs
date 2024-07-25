@@ -85,6 +85,7 @@ impl OrdChunk {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::jif::test::gen_jif;
 
     #[test]
     fn empty_ord() {
@@ -127,5 +128,18 @@ mod test {
         assert_eq!(ord.last_page_addr(), 0xa000);
     }
 
-    // TODO(test): create a test Jif file to test `merge_page`
+    #[test]
+    fn merge() {
+        let jif = gen_jif(&[(0x10000, 0x20000), (0x20000, 0x30000)]);
+        let mut ord = OrdChunk::new(0x11000, 0xe);
+
+        assert!(ord.merge_page(&jif, 0x10000));
+        assert_eq!(ord, OrdChunk::new(0x10000, 0xf));
+
+        assert!(ord.merge_page(&jif, 0x1f000));
+        assert_eq!(ord, OrdChunk::new(0x10000, 0x10));
+
+        assert!(!ord.merge_page(&jif, 0x20000));
+        assert_eq!(ord, OrdChunk::new(0x10000, 0x10));
+    }
 }
