@@ -47,10 +47,10 @@ if __name__ == '__main__':
 
 #[derive(Parser, Debug)]
 #[command(version)]
-/// readjif: read and query JIF files
+/// cmpjif: compare JIF files
 ///
-/// Thie tool parses the JIF (optionally materializing it) and allows for querying and viewing the
-/// JIF
+/// This tool compares JIF files to produce an upset plot (a flat representation of a multi-dimensional Venn Diagram)
+///
 struct Cli {
     /// JIF file to read from
     #[arg(value_name = "FILE", num_args = 2.., value_hint = clap::ValueHint::FilePath)]

@@ -71,7 +71,7 @@ For raw JIFs, the API is similar:
 $ readjif --help
 readjif: read and query JIF files
 
-Thie tool parses the JIF (optionally materializing it) and allows for querying and viewing the JIF
+This tool parses the JIF (optionally materializing it) and allows for querying and viewing the JIF
 
 Usage: readjif [OPTIONS] <FILE> [COMMAND]
 

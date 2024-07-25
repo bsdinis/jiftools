@@ -79,7 +79,7 @@ use clap::Parser;
 #[command(version)]
 /// readjif: read and query JIF files
 ///
-/// Thie tool parses the JIF (optionally materializing it) and allows for querying and viewing the
+/// This tool parses the JIF (optionally materializing it) and allows for querying and viewing the
 /// JIF
 struct Cli {
     /// JIF file to read from
