@@ -34,11 +34,15 @@ if __name__ == '__main__':
     all_x = list()
     all_y = list()
 
-    no_zero_x = list()
-    no_zero_y = list()
+    non_shared_x = list()
+    non_shared_y = list()
 
     private_x = list()
     private_y = list()
+
+    private_cnt = 0
+    zero_cnt = 0
+    shared_cnt = 0
     for line in sys.stdin.readlines():
         split = line.strip().split(' ')
         assert len(split) == 2, 'expected format is <timestamp> <\\'zero\\' | \\'shared\\' | \\'private\\' | \\'unknown\\'>'
@@ -49,24 +53,28 @@ if __name__ == '__main__':
         all_x.append(timestamp_ms)
         all_y.append(len(all_x))
         if type == 'private':
-            no_zero_x.append(timestamp_ms)
-            no_zero_y.append(len(no_zero_x))
+            non_shared_x.append(timestamp_ms)
+            non_shared_y.append(len(non_shared_x))
             private_x.append(timestamp_ms)
             private_y.append(len(private_x))
+            private_cnt += 1
+        elif type == 'zero':
+            non_shared_x.append(timestamp_ms)
+            non_shared_y.append(len(non_shared_x))
+            zero_cnt += 1
         elif type == 'shared':
-            no_zero_x.append(timestamp_ms)
-            no_zero_y.append(len(no_zero_x))
+            shared_cnt += 1
 
     plt.scatter(all_x, all_y, s=5, label='all')
-    plt.scatter(no_zero_x, no_zero_y, s=5, label='non-zero')
-    plt.scatter(private_x, private_y, s=5, label='private')
+    plt.scatter(non_shared_x, non_shared_y, s=5, label='private')
+    plt.scatter(private_x, private_y, s=5, label='private - zero')
 
     plt.xlabel('Time (ms)', fontfamily='sans-serif', fontsize=12)
     plt.ylabel('Number of unique pages', fontfamily='sans-serif', fontsize=12)
     plt.title(title, fontfamily='sans-serif', fontsize=15)
     plt.legend()
     plt.savefig(output)
-    print('{}, \\t{}, \\t{}, \\t{}'.format(title, len(all_x), len(private_x), len(no_zero_x)))
+    print('{}, \\t{}, \\t{}, \\t{}, \\t{}'.format(title, len(all_x), private_cnt, shared_cnt, zero_cnt))
 ";
 
 #[derive(Parser, Debug)]
