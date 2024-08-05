@@ -34,7 +34,7 @@ struct Cli {
 /// Print the trace
 fn print_trace(jif: &Jif, tsa: &[TimestampedAccess]) {
     for entry in tsa {
-        let data_source = match jif.resolve(entry.addr as u64) {
+        let data_source = match jif.resolve(entry.addr as u64).map(|ival| ival.source) {
             Some(DataSource::Zero) => "zero",
             Some(DataSource::Private) => "private",
             Some(DataSource::Shared) => "shared",

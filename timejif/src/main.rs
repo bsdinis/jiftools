@@ -124,7 +124,7 @@ fn plot_timeplot(
         for entry in tsa {
             let timestamp_ms = entry.usecs as f64 / 1000.0;
 
-            let data_source = match jif.resolve(entry.addr as u64) {
+            let data_source = match jif.resolve(entry.addr as u64).map(|ival| ival.source) {
                 Some(DataSource::Zero) => "zero",
                 Some(DataSource::Private) => "private",
                 Some(DataSource::Shared) => "shared",

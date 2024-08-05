@@ -4,7 +4,7 @@
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
-use crate::itree::interval::{AnonIntervalData, DataSource, RefIntervalData};
+use crate::itree::interval::{AnonIntervalData, LogicalInterval, RefIntervalData};
 use crate::itree::itree_node::{ITreeNode, RawITreeNode};
 use crate::itree::ITree;
 use crate::ord::OrdChunk;
@@ -218,7 +218,7 @@ impl Jif {
     }
 
     /// Resolve an address into a [`DataSource`]
-    pub fn resolve(&self, addr: u64) -> Option<DataSource> {
+    pub fn resolve(&self, addr: u64) -> Option<LogicalInterval> {
         self.pheaders
             .iter()
             .find(|phdr| phdr.mapps_addr(addr))

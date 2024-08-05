@@ -5,6 +5,17 @@ use std::collections::BTreeMap;
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::{IntervalError, IntervalResult};
 
+/// A logical interval, i.e.: what the generic interval tree resolves to
+///
+/// Internally, the interval tree can resolve to nothing (i.e., the resolution is surmised from the
+/// itree type). However, it is generally useful to understand what the implied interval is
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogicalInterval {
+    pub start: u64,
+    pub end: u64,
+    pub source: DataSource,
+}
+
 /// Data source resolved by the [`ITree`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DataSource {
@@ -53,6 +64,26 @@ pub enum RefIntervalData {
 
     #[default]
     None,
+}
+
+impl From<&Interval<AnonIntervalData>> for LogicalInterval {
+    fn from(value: &Interval<AnonIntervalData>) -> Self {
+        LogicalInterval {
+            start: value.start,
+            end: value.end,
+            source: (&value.data).into(),
+        }
+    }
+}
+
+impl From<&Interval<RefIntervalData>> for LogicalInterval {
+    fn from(value: &Interval<RefIntervalData>) -> Self {
+        LogicalInterval {
+            start: value.start,
+            end: value.end,
+            source: (&value.data).into(),
+        }
+    }
 }
 
 impl From<&AnonIntervalData> for DataSource {

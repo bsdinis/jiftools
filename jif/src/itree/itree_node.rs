@@ -99,10 +99,9 @@ impl<Data: IntervalData> ITreeNode<Data> {
             .sum()
     }
 
-    /// For this node, find how many virtual address space bytes are
-    /// backed by private data or zero pages (i.e., are not backed by a reference segment) within
+    /// For this node, find how many virtual address space bytes are explicitely mapped within
     /// a particular sub interval
-    pub(crate) fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
+    pub(crate) fn explicitely_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         self.ranges()
             .iter()
             .filter(|i| !i.is_none())

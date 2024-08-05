@@ -167,8 +167,8 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         self.nodes.into_iter().flat_map(|n| n.ranges.into_iter())
     }
     /// Iterate over the intervals
-    pub(crate) fn iter_intervals(&self) -> impl Iterator<Item = &Interval<Data>> {
-        self.nodes.iter().flat_map(|n| n.ranges.iter())
+    pub(crate) fn in_order_intervals(&self) -> impl Iterator<Item = &Interval<Data>> {
+        ITreeIterator::new(self)
     }
 
     /// How much of the interval tree consists of zero page mappings
@@ -181,19 +181,19 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         self.nodes.iter().map(ITreeNode::private_data_size).sum()
     }
 
-    /// How much of a particular `[start; end)` sub-interval of the address space
-    /// does this interval tree map with either zero pages or private pages
-    pub(crate) fn mapped_subregion_size(&self, start: u64, end: u64) -> usize {
+    /// How much of a particular `[start; end)` sub-interval of the address space does the interval
+    /// tree explicitely map
+    pub(crate) fn explicitely_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
         self.nodes
             .iter()
-            .map(|n| n.mapped_subregion_size(start, end))
+            .map(|n| n.explicitely_mapped_subregion_size(start, end))
             .sum()
     }
 
     /// How much of a particular `[start; end)` sub-interval of the address space
-    /// does this interval tree not map (i.e., will be backed by a reference segment)
-    pub(crate) fn not_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
-        (end - start) as usize - self.mapped_subregion_size(start, end)
+    /// does this interval tree map implicitely
+    pub(crate) fn implicitely_mapped_subregion_size(&self, start: u64, end: u64) -> usize {
+        (end - start) as usize - self.explicitely_mapped_subregion_size(start, end)
     }
 
     /// Iterate over the private pages in the interval tree
@@ -204,11 +204,12 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         &'a self,
         deduper: &'a Deduper,
     ) -> impl Iterator<Item = &[u8]> + 'a {
-        ITreeIterator::new(self)
+        self.in_order_intervals()
             .filter_map(|i| i.data.get_data(deduper).map(|d| d.chunks_exact(PAGE_SIZE)))
             .flatten()
     }
 
+    /// Resolve an address in the interval tree
     pub fn resolve(&self, addr: u64) -> Option<&Interval<Data>> {
         fn resolve_aux<Data: IntervalData>(
             nodes: &[ITreeNode<Data>],
@@ -239,6 +240,38 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         }
 
         resolve_aux(&self.nodes, addr, 0 /* node_idx */)
+    }
+
+    /// Find which gap in the interval tree the address belongs too
+    /// In relation to [`resolve`], the following can be considered:
+    /// - If `itree.resolve(addr).is_some()` the address is explicitely resolved by the itree
+    /// - If `itree.resolve_gap(addr).is_some()` the address is implicitely resolved by the itree
+    ///
+    /// Note that itree.resolve(addr).or(itree.resolve_gap(addr)) is always some
+    pub fn resolve_gap(&self, addr: u64) -> Option<(u64, u64)> {
+        let first_start = self
+            .in_order_intervals()
+            .next()
+            .map(|ival| ival.start)
+            .unwrap_or(u64::MAX);
+        if addr < first_start {
+            return Some((0, first_start));
+        }
+
+        let last_end = self
+            .in_order_intervals()
+            .last()
+            .map(|ival| ival.end)
+            .unwrap_or(0);
+        if addr >= last_end {
+            return Some((last_end, u64::MAX));
+        }
+
+        // TODO: there is a way to do this recursively, i'm feeling lazy rn
+        self.in_order_intervals()
+            .zip(self.in_order_intervals().skip(1))
+            .find(|(i1, i2)| i1.end <= addr && addr < i2.start)
+            .map(|(i1, i2)| (i1.end, i2.start))
     }
 }
 
@@ -321,7 +354,8 @@ impl<'a, Data: IntervalData> Iterator for ITreeIterator<'a, Data> {
                         range_idx: range_idx + 1,
                     });
 
-                    return Some(&self.nodes[node_idx].ranges[range_idx]);
+                    let ival = &self.nodes[node_idx].ranges[range_idx];
+                    return (!ival.is_none()).then_some(ival);
                 }
             }
         }
@@ -434,12 +468,15 @@ pub(crate) mod test {
         assert_eq!(tree.n_nodes(), 0);
         assert_eq!(tree.n_intervals(), 0);
         assert_eq!(tree.n_data_intervals(), 0);
-        assert_eq!(tree.iter_intervals().count(), 0);
+        assert_eq!(tree.in_order_intervals().count(), 0);
         assert_eq!(tree.zero_byte_size(), 0);
         assert_eq!(tree.private_data_size(), 0);
-        assert_eq!(tree.mapped_subregion_size(VADDR_BEGIN, VADDR_END), 0);
         assert_eq!(
-            tree.not_mapped_subregion_size(VADDR_BEGIN, VADDR_END),
+            tree.explicitely_mapped_subregion_size(VADDR_BEGIN, VADDR_END),
+            0
+        );
+        assert_eq!(
+            tree.implicitely_mapped_subregion_size(VADDR_BEGIN, VADDR_END),
             (VADDR_END - VADDR_BEGIN) as usize
         );
         let deduper = Deduper::default();
@@ -479,6 +516,29 @@ pub(crate) mod test {
             };
             cnt += 1
         }
+
+        // test the in order traversal is in order
+        for (i1, i2) in tree
+            .in_order_intervals()
+            .zip(tree.in_order_intervals().skip(1))
+        {
+            assert!(i1.end <= i2.start);
+        }
+
+        {
+            assert_eq!(
+                tree.implicitely_mapped_subregion_size(VADDR_BEGIN, VADDR_END),
+                std::iter::once((0, VADDR_BEGIN))
+                    .chain(tree.in_order_intervals().map(|ival| (ival.start, ival.end)))
+                    .zip(
+                        tree.in_order_intervals()
+                            .map(|ival| (ival.start, ival.end))
+                            .chain(std::iter::once((VADDR_END, u64::MAX)))
+                    )
+                    .map(|((_s1, e1), (s2, _e2))| s2 as usize - e1 as usize)
+                    .sum()
+            );
+        }
     }
 
     #[test]
@@ -498,6 +558,14 @@ pub(crate) mod test {
                 _ => unreachable!(),
             };
             cnt += 1
+        }
+
+        // test the in order traversal is in order
+        for (i1, i2) in tree
+            .in_order_intervals()
+            .zip(tree.in_order_intervals().skip(1))
+        {
+            assert!(i1.end <= i2.start);
         }
     }
 }

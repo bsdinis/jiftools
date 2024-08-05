@@ -57,7 +57,9 @@ impl OrdChunk {
             return true;
         }
 
-        if jif.mapping_pheader_idx(vaddr) != jif.mapping_pheader_idx(self.vaddr) {
+        // we can only merge if the addresses belong in the same itree interval (logically)
+        // and, consequently, in the same pheader
+        if jif.resolve(vaddr) != jif.resolve(self.vaddr) {
             return false;
         }
 

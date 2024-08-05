@@ -341,7 +341,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 5);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0x1000 * 3);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x3000),
+            0x1000 * 3
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -364,7 +367,7 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0);
+        assert_eq!(itree.explicitely_mapped_subregion_size(0x0000, 0x3000), 0);
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
@@ -391,7 +394,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 2);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 2);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x4000),
+            0x1000 * 2
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -420,7 +426,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 3);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 2);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x4000),
+            0x1000 * 2
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -449,7 +458,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 5);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 0x1000 * 3);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x3000),
+            0x1000 * 3
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -476,7 +488,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 5 * 0x1000);
         assert_eq!(itree.private_data_size(), 0);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x3000), 3 * 0x1000);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x3000),
+            3 * 0x1000
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
@@ -505,7 +520,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 3 * 0x1000);
         assert_eq!(itree.private_data_size(), 0x1000 * 2);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 4 * 0x1000);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x4000),
+            4 * 0x1000
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -535,7 +553,10 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 2 * 0x1000);
         assert_eq!(itree.private_data_size(), 0x1000 * 3);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x4000), 0x1000 * 4);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x4000),
+            0x1000 * 4
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -556,8 +577,11 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
+        assert_eq!(itree.explicitely_mapped_subregion_size(0x0000, 0x5000), 0);
+        assert_eq!(
+            itree.implicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000 * 5
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
@@ -583,8 +607,11 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0);
         assert_eq!(itree.private_data_size(), 0x1000 * 5);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000 * 5
+        );
+        assert_eq!(itree.implicitely_mapped_subregion_size(0x0000, 0x5000), 0);
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
@@ -611,8 +638,11 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0x1000 * 5);
         assert_eq!(itree.private_data_size(), 0);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 5);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000 * 5
+        );
+        assert_eq!(itree.implicitely_mapped_subregion_size(0x0000, 0x5000), 0);
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next(), None);
@@ -643,8 +673,14 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0x1000);
         assert_eq!(itree.private_data_size(), 0x1000 * 3);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 4);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000 * 4
+        );
+        assert_eq!(
+            itree.implicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -698,10 +734,22 @@ mod test {
         assert_eq!(itree.nodes, target_itree.nodes);
         assert_eq!(itree.zero_byte_size(), 0x1000 * 4);
         assert_eq!(itree.private_data_size(), 0x1000 * 4);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0x5000), 0x1000 * 3);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0x5000), 0x1000 * 2);
-        assert_eq!(itree.mapped_subregion_size(0x0000, 0xa000), 0x1000 * 8);
-        assert_eq!(itree.not_mapped_subregion_size(0x0000, 0xa000), 0x1000 * 2);
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000 * 3
+        );
+        assert_eq!(
+            itree.implicitely_mapped_subregion_size(0x0000, 0x5000),
+            0x1000 * 2
+        );
+        assert_eq!(
+            itree.explicitely_mapped_subregion_size(0x0000, 0xa000),
+            0x1000 * 8
+        );
+        assert_eq!(
+            itree.implicitely_mapped_subregion_size(0x0000, 0xa000),
+            0x1000 * 2
+        );
 
         let mut it = itree.iter_private_pages(&deduper);
         assert_eq!(it.next().unwrap(), vec![0xaa; 0x1000]);

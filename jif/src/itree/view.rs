@@ -1,7 +1,7 @@
 //! Immutable view over the interval tree
 
 use crate::deduper::Deduper;
-use crate::itree::interval::{AnonIntervalData, DataSource, RefIntervalData};
+use crate::itree::interval::{AnonIntervalData, DataSource, LogicalInterval, RefIntervalData};
 use crate::itree::ITree;
 
 /// Generic view over the two possible types of [`ITree`]
@@ -66,16 +66,30 @@ impl<'a> ITreeView<'a> {
     }
 
     /// Resolve address in the interval tree
-    pub fn resolve(&self, addr: u64) -> DataSource {
+    pub fn resolve(&self, addr: u64) -> LogicalInterval {
         match self {
             ITreeView::Anon { inner } => inner
                 .resolve(addr)
-                .map(|ival| (&ival.data).into())
-                .unwrap_or(DataSource::Zero),
+                .map(|ival| ival.into())
+                .or_else(|| {
+                    inner.resolve_gap(addr).map(|(start, end)| LogicalInterval {
+                        start,
+                        end,
+                        source: DataSource::Zero,
+                    })
+                })
+                .expect("either `resolve` or `resolve_gap` must yield Some"),
             ITreeView::Ref { inner } => inner
                 .resolve(addr)
-                .map(|ival| (&ival.data).into())
-                .unwrap_or(DataSource::Shared),
+                .map(|ival| ival.into())
+                .or_else(|| {
+                    inner.resolve_gap(addr).map(|(start, end)| LogicalInterval {
+                        start,
+                        end,
+                        source: DataSource::Shared,
+                    })
+                })
+                .expect("either `resolve` or `resolve_gap` must yield Some"),
         }
     }
 }
@@ -98,26 +112,26 @@ mod test {
     fn anon_resolve_empty() {
         let itree: ITree<AnonIntervalData> = gen_empty();
         let view = ITreeView::Anon { inner: &itree };
-        assert_eq!(view.resolve(0), DataSource::Zero);
-        assert_eq!(view.resolve(VADDR_BEGIN), DataSource::Zero);
+        assert_eq!(view.resolve(0).source, DataSource::Zero);
+        assert_eq!(view.resolve(VADDR_BEGIN).source, DataSource::Zero);
         assert_eq!(
-            view.resolve((VADDR_BEGIN + VADDR_END) / 2),
+            view.resolve((VADDR_BEGIN + VADDR_END) / 2).source,
             DataSource::Zero
         );
-        assert_eq!(view.resolve(VADDR_END), DataSource::Zero);
+        assert_eq!(view.resolve(VADDR_END).source, DataSource::Zero);
     }
 
     #[test]
     fn ref_resolve_empty() {
         let itree: ITree<RefIntervalData> = gen_empty();
         let view = ITreeView::Ref { inner: &itree };
-        assert_eq!(view.resolve(0), DataSource::Shared);
-        assert_eq!(view.resolve(VADDR_BEGIN), DataSource::Shared);
+        assert_eq!(view.resolve(0).source, DataSource::Shared);
+        assert_eq!(view.resolve(VADDR_BEGIN).source, DataSource::Shared);
         assert_eq!(
-            view.resolve((VADDR_BEGIN + VADDR_END) / 2),
+            view.resolve((VADDR_BEGIN + VADDR_END) / 2).source,
             DataSource::Shared
         );
-        assert_eq!(view.resolve(VADDR_END), DataSource::Shared);
+        assert_eq!(view.resolve(VADDR_END).source, DataSource::Shared);
     }
 
     #[test]
@@ -133,8 +147,8 @@ mod test {
         {
             let resolve = view.resolve(addr);
             match cnt % 2 {
-                0 => assert_eq!(resolve, DataSource::Private),
-                1 => assert_eq!(resolve, DataSource::Zero),
+                0 => assert_eq!(resolve.source, DataSource::Private),
+                1 => assert_eq!(resolve.source, DataSource::Zero),
                 _ => unreachable!(),
             };
             cnt += 1
@@ -154,9 +168,9 @@ mod test {
         {
             let resolve = view.resolve(addr);
             match cnt % 3 {
-                0 => assert_eq!(resolve, DataSource::Private),
-                1 => assert_eq!(resolve, DataSource::Zero),
-                2 => assert_eq!(resolve, DataSource::Shared),
+                0 => assert_eq!(resolve.source, DataSource::Private),
+                1 => assert_eq!(resolve.source, DataSource::Zero),
+                2 => assert_eq!(resolve.source, DataSource::Shared),
                 _ => unreachable!(),
             };
             cnt += 1

@@ -9,7 +9,7 @@ use crate::itree::diff::{
     create_anon_itree_from_zero_page, create_itree_from_diff, create_ref_itree_from_zero_page,
 };
 use crate::itree::interval::{
-    AnonIntervalData, DataSource, Interval, IntervalData, RefIntervalData,
+    AnonIntervalData, Interval, IntervalData, LogicalInterval, RefIntervalData,
 };
 use crate::itree::itree_node::RawITreeNode;
 use crate::itree::{ITree, ITreeView};
@@ -197,7 +197,7 @@ impl JifPheader {
         ) -> ITreeResult<()> {
             let orig_itree = itree.take();
             let mut intervals = orig_itree
-                .iter_intervals()
+                .in_order_intervals()
                 .filter(|i| i.is_zero())
                 .cloned()
                 .collect();
@@ -232,7 +232,7 @@ impl JifPheader {
                     build_ref_from_zero(itree, *vaddr_range, deduper)?
                 } else {
                     let data_interval = itree
-                        .iter_intervals()
+                        .in_order_intervals()
                         .find(|i| i.is_data())
                         .expect("we checked there was a data interval");
 
@@ -270,7 +270,7 @@ impl JifPheader {
     }
 
     /// Resolve an address
-    pub(crate) fn resolve(&self, addr: u64) -> DataSource {
+    pub(crate) fn resolve(&self, addr: u64) -> LogicalInterval {
         self.itree().resolve(addr)
     }
 
@@ -329,7 +329,7 @@ impl JifPheader {
         (match self {
             JifPheader::Anonymous {
                 itree, vaddr_range, ..
-            } => itree.not_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
+            } => itree.implicitely_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
             JifPheader::Reference { itree, .. } => itree.zero_byte_size(),
         }) / PAGE_SIZE
     }
@@ -345,7 +345,7 @@ impl JifPheader {
             JifPheader::Anonymous { .. } => 0,
             JifPheader::Reference {
                 itree, vaddr_range, ..
-            } => itree.not_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
+            } => itree.implicitely_mapped_subregion_size(vaddr_range.0, vaddr_range.1),
         }) / PAGE_SIZE
     }
 
