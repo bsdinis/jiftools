@@ -460,11 +460,11 @@ impl std::fmt::Debug for JifRaw {
 pub(crate) mod test {
     use super::*;
     use crate::pheader::test::gen_pheader;
-    pub(crate) fn gen_jif(vaddrs: &[(u64, u64)]) -> Jif {
+    pub(crate) fn gen_jif(vaddrs: &[((u64, u64), &[(u64, u64)])]) -> Jif {
         Jif {
             pheaders: vaddrs
                 .into_iter()
-                .map(|range| gen_pheader(*range))
+                .map(|(range, ivals)| gen_pheader(*range, ivals))
                 .collect(),
             ord_chunks: vec![],
             deduper: Deduper::default(),

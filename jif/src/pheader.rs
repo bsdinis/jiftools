@@ -608,10 +608,21 @@ impl std::fmt::Debug for JifRawPheader {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    pub(crate) fn gen_pheader(vaddr_range: (u64, u64)) -> JifPheader {
+    pub(crate) fn gen_pheader(vaddr_range: (u64, u64), ivals: &[(u64, u64)]) -> JifPheader {
         JifPheader::Anonymous {
             vaddr_range,
-            itree: ITree::new(vec![], vaddr_range).unwrap(),
+            itree: ITree::build(
+                ivals
+                    .into_iter()
+                    .map(|(start, end)| Interval {
+                        start: *start,
+                        end: *end,
+                        data: AnonIntervalData::Owned(vec![42; (end - start) as usize]),
+                    })
+                    .collect(),
+                vaddr_range,
+            )
+            .unwrap(),
             prot: Prot::Read as u8,
         }
     }
