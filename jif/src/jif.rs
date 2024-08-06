@@ -233,12 +233,11 @@ impl JifRaw {
     ///  - intervals in [`ITree`]s are unique
     ///  - intervals don't overlap
     ///  - ordering chunks span only one interval
-    fn order_data_segments(
+    pub(crate) fn order_data_segments(
         itree_nodes: Vec<IntermediateITreeNode>,
         ord_chunks: &[OrdChunk],
         mut data_offset: u64,
     ) -> (BTreeMap<DedupToken, (u64, u64)>, Vec<RawITreeNode>) {
-        // TODO(test): test the ordering of data segments
         let mut intervals = {
             let mut v = itree_nodes
                 .iter()
@@ -525,6 +524,8 @@ impl std::fmt::Debug for JifRaw {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+
+    use crate::itree::interval::{IntermediateInterval, IntermediateIntervalData};
     use crate::pheader::test::gen_pheader;
     pub(crate) fn gen_jif(vaddrs: &[((u64, u64), &[(u64, u64)])]) -> Jif {
         Jif {
@@ -535,5 +536,135 @@ pub(crate) mod test {
             ord_chunks: vec![],
             deduper: Deduper::default(),
         }
+    }
+
+    #[test]
+    fn test_order_segments_empty() {
+        let (token_map, itree_nodes) = JifRaw::order_data_segments(vec![], &[], 0);
+        assert!(token_map.is_empty());
+        assert!(itree_nodes.is_empty());
+    }
+
+    #[test]
+    fn test_order_segments() {
+        fn inter_node(ival: IntermediateInterval) -> IntermediateITreeNode {
+            let mut node = IntermediateITreeNode::default();
+            node.ranges[0] = ival;
+            node
+        }
+        // TODO
+        // 1: dedup some segments and create some intermediate itree nodes
+        let mut deduper = Deduper::default();
+        let mut intermediate_nodes = Vec::new();
+        intermediate_nodes.push(inter_node(IntermediateInterval {
+            start: 0x1000,
+            end: 0x2000,
+            data: IntermediateIntervalData::Zero,
+        }));
+
+        let token1 = deduper.insert(vec![42; 0x2000]);
+        intermediate_nodes.push(inter_node(IntermediateInterval {
+            start: 0x3000,
+            end: 0x5000,
+            data: IntermediateIntervalData::Ref(token1),
+        }));
+
+        let token2 = deduper.insert(vec![42; 0x2000]);
+        assert_eq!(token1, token2);
+        intermediate_nodes.push(inter_node(IntermediateInterval {
+            start: 0x6000,
+            end: 0x8000,
+            data: IntermediateIntervalData::Ref(token2),
+        }));
+
+        intermediate_nodes.push(inter_node(IntermediateInterval {
+            start: 0x8000,
+            end: 0x9000,
+            data: IntermediateIntervalData::Zero,
+        }));
+
+        let token3 = deduper.insert(vec![84; 0x1000]);
+        intermediate_nodes.push(inter_node(IntermediateInterval {
+            start: 0x10000,
+            end: 0x11000,
+            data: IntermediateIntervalData::Ref(token3),
+        }));
+
+        // 2: create some ordering segments (make sure they aren't bad)
+        let ord_chunks = [
+            OrdChunk {
+                vaddr: 0x10000,
+                n_pages: 1,
+            },
+            OrdChunk {
+                vaddr: 0x7000,
+                n_pages: 1,
+            },
+            OrdChunk {
+                vaddr: 0x8000,
+                n_pages: 1,
+            },
+            OrdChunk {
+                vaddr: 0x6000,
+                n_pages: 1,
+            },
+            OrdChunk {
+                vaddr: 0x3000,
+                n_pages: 2,
+            },
+            OrdChunk {
+                vaddr: 0x1000,
+                n_pages: 1,
+            },
+        ];
+
+        // 3: call order_data_segments
+        let (token_map, itree_nodes) =
+            JifRaw::order_data_segments(intermediate_nodes, &ord_chunks, 0);
+
+        // 4: check order
+        assert_eq!(token_map.get(&token1), Some(&(0x1000, 0x3000)));
+        assert_eq!(token_map.get(&token3), Some(&(0x0000, 0x1000)));
+
+        // 5: check intervals
+        let intervals = {
+            let mut ivals = itree_nodes
+                .into_iter()
+                .flat_map(|node| node.ranges.into_iter())
+                .filter(|ival| ival.start != u64::MAX && ival.end != u64::MAX)
+                .collect::<Vec<_>>();
+            ivals.sort_by_key(|ival| ival.start);
+            ivals
+        };
+        assert_eq!(
+            intervals,
+            vec![
+                RawInterval {
+                    start: 0x1000,
+                    end: 0x2000,
+                    offset: u64::MAX
+                },
+                RawInterval {
+                    start: 0x3000,
+                    end: 0x5000,
+                    offset: 0x1000
+                },
+                RawInterval {
+                    start: 0x6000,
+                    end: 0x8000,
+                    offset: 0x1000
+                },
+                RawInterval {
+                    start: 0x8000,
+                    end: 0x9000,
+                    offset: u64::MAX
+                },
+                RawInterval {
+                    start: 0x10000,
+                    end: 0x11000,
+                    offset: 0x0000
+                },
+            ]
+        );
     }
 }
