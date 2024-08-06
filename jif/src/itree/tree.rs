@@ -27,6 +27,7 @@ use crate::utils::PAGE_SIZE;
 ///
 pub struct ITree<Data: IntervalData> {
     pub(crate) nodes: Vec<ITreeNode<Data>>,
+    virtual_range: (u64, u64),
 }
 
 impl<Data: IntervalData + std::default::Default> ITree<Data> {
@@ -88,13 +89,19 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             });
         }
 
-        Ok(ITree { nodes })
+        Ok(ITree {
+            nodes,
+            virtual_range,
+        })
     }
 
     /// Take ownership of the [`ITree`], leaving it empty
     pub fn take(&mut self) -> Self {
         let nodes = self.nodes.split_off(0);
-        ITree { nodes }
+        ITree {
+            nodes,
+            virtual_range: self.virtual_range,
+        }
     }
 
     /// How many [`ITreeNode`]s will be required given the number of intervals
@@ -209,69 +216,44 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             .flatten()
     }
 
-    /// Resolve an address in the interval tree
-    pub fn resolve(&self, addr: u64) -> Option<&Interval<Data>> {
+    /// Resolve an address in the interval tree, or into the gap in the interval tree it belongs to
+    pub fn resolve(&self, addr: u64) -> Result<&Interval<Data>, (u64, u64)> {
         fn resolve_aux<Data: IntervalData>(
             nodes: &[ITreeNode<Data>],
             addr: u64,
             node_idx: usize,
-        ) -> Option<&Interval<Data>> {
+            mut range: (u64, u64),
+        ) -> Result<&Interval<Data>, (u64, u64)> {
             // base case: over len
             if node_idx >= nodes.len() {
-                return None;
+                return Err(range);
             }
 
             let child_idx = |i| node_idx * FANOUT + 1 + i;
-            for (idx, node) in nodes[node_idx].ranges.iter().enumerate() {
-                match node.cmp(addr) {
+            for (idx, ival) in nodes[node_idx].ranges.iter().enumerate() {
+                match ival.cmp(addr) {
                     std::cmp::Ordering::Less => {
-                        return resolve_aux(nodes, addr, child_idx(idx));
+                        return resolve_aux(
+                            nodes,
+                            addr,
+                            child_idx(idx),
+                            (range.0, std::cmp::min(range.1, ival.start)),
+                        );
                     }
                     std::cmp::Ordering::Equal => {
-                        return Some(node);
+                        return Ok(ival);
                     }
                     std::cmp::Ordering::Greater => {
+                        range = (std::cmp::max(range.0, ival.end), range.1);
                         // not found, continue
                     }
                 }
             }
 
-            resolve_aux(nodes, addr, child_idx(FANOUT - 1))
+            resolve_aux(nodes, addr, child_idx(FANOUT - 1), range)
         }
 
-        resolve_aux(&self.nodes, addr, 0 /* node_idx */)
-    }
-
-    /// Find which gap in the interval tree the address belongs too
-    /// In relation to [`resolve`], the following can be considered:
-    /// - If `itree.resolve(addr).is_some()` the address is explicitely resolved by the itree
-    /// - If `itree.resolve_gap(addr).is_some()` the address is implicitely resolved by the itree
-    ///
-    /// Note that itree.resolve(addr).or(itree.resolve_gap(addr)) is always some
-    pub fn resolve_gap(&self, addr: u64) -> Option<(u64, u64)> {
-        let first_start = self
-            .in_order_intervals()
-            .next()
-            .map(|ival| ival.start)
-            .unwrap_or(u64::MAX);
-        if addr < first_start {
-            return Some((0, first_start));
-        }
-
-        let last_end = self
-            .in_order_intervals()
-            .last()
-            .map(|ival| ival.end)
-            .unwrap_or(0);
-        if addr >= last_end {
-            return Some((last_end, u64::MAX));
-        }
-
-        // TODO: there is a way to do this recursively, i'm feeling lazy rn
-        self.in_order_intervals()
-            .zip(self.in_order_intervals().skip(1))
-            .find(|(i1, i2)| i1.end <= addr && addr < i2.start)
-            .map(|(i1, i2)| (i1.end, i2.start))
+        resolve_aux(&self.nodes, addr, 0 /* node_idx */, self.virtual_range)
     }
 }
 
@@ -481,10 +463,13 @@ pub(crate) mod test {
         );
         let deduper = Deduper::default();
         assert_eq!(tree.iter_private_pages(&deduper).count(), 0);
-        assert_eq!(tree.resolve(0), None);
-        assert_eq!(tree.resolve(VADDR_BEGIN), None);
-        assert_eq!(tree.resolve((VADDR_BEGIN + VADDR_END) / 2), None);
-        assert_eq!(tree.resolve(VADDR_END), None);
+        assert_eq!(tree.resolve(0), Err((VADDR_BEGIN, VADDR_END)));
+        assert_eq!(tree.resolve(VADDR_BEGIN), Err((VADDR_BEGIN, VADDR_END)));
+        assert_eq!(
+            tree.resolve((VADDR_BEGIN + VADDR_END) / 2),
+            Err((VADDR_BEGIN, VADDR_END))
+        );
+        assert_eq!(tree.resolve(VADDR_END), Err((VADDR_BEGIN, VADDR_END)));
     }
 
     #[test]
@@ -500,18 +485,18 @@ pub(crate) mod test {
     fn test_anon_tree() {
         let tree = gen_anon_tree();
         let mut cnt = 0;
-        for addr in VADDRS
-            .iter()
-            .zip(VADDRS.iter().skip(1))
-            .map(|(start, end)| (start + end) / 2)
-        {
+        // ranges are mapped on and off
+        // we query the midpoint in each range
+        for range in VADDRS.into_iter().zip(VADDRS.into_iter().skip(1)) {
+            let addr = (range.0 + range.1) / 2;
+            dbg!(addr, range);
             let resolve = tree.resolve(addr);
             match cnt % 2 {
                 0 => assert!(matches!(
                     &resolve.unwrap().data,
                     &AnonIntervalData::Owned(_)
                 )),
-                1 => assert!(resolve.is_none()),
+                1 => assert_eq!(resolve.unwrap_err(), range),
                 _ => unreachable!(),
             };
             cnt += 1
@@ -545,16 +530,15 @@ pub(crate) mod test {
     fn test_ref_tree() {
         let tree = gen_ref_tree();
         let mut cnt = 0;
-        for addr in VADDRS
-            .iter()
-            .zip(VADDRS.iter().skip(1))
-            .map(|(start, end)| (start + end) / 2)
-        {
+        // ranges are mapped in an Owned -> Zero -> Ref cycle (Ref is implied)
+        // we query the midpoint in each range
+        for range in VADDRS.into_iter().zip(VADDRS.into_iter().skip(1)) {
+            let addr = (range.0 + range.1) / 2;
             let resolve = tree.resolve(addr);
             match cnt % 3 {
                 0 => assert!(matches!(&resolve.unwrap().data, &RefIntervalData::Owned(_))),
                 1 => assert!(matches!(&resolve.unwrap().data, &RefIntervalData::Zero)),
-                2 => assert!(resolve.is_none()),
+                2 => assert_eq!(resolve.unwrap_err(), range),
                 _ => unreachable!(),
             };
             cnt += 1

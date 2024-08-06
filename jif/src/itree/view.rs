@@ -68,28 +68,32 @@ impl<'a> ITreeView<'a> {
     /// Resolve address in the interval tree
     pub fn resolve(&self, addr: u64) -> LogicalInterval {
         match self {
-            ITreeView::Anon { inner } => inner
-                .resolve(addr)
-                .map(|ival| ival.into())
-                .or_else(|| {
-                    inner.resolve_gap(addr).map(|(start, end)| LogicalInterval {
+            ITreeView::Anon { inner } => {
+                match inner
+                    .resolve(addr)
+                    .map(|ival| ival.into())
+                    .map_err(|(start, end)| LogicalInterval {
                         start,
                         end,
                         source: DataSource::Zero,
-                    })
-                })
-                .expect("either `resolve` or `resolve_gap` must yield Some"),
-            ITreeView::Ref { inner } => inner
-                .resolve(addr)
-                .map(|ival| ival.into())
-                .or_else(|| {
-                    inner.resolve_gap(addr).map(|(start, end)| LogicalInterval {
+                    }) {
+                    Ok(v) => v,
+                    Err(v) => v,
+                }
+            }
+            ITreeView::Ref { inner } => {
+                match inner
+                    .resolve(addr)
+                    .map(|ival| ival.into())
+                    .map_err(|(start, end)| LogicalInterval {
                         start,
                         end,
                         source: DataSource::Shared,
-                    })
-                })
-                .expect("either `resolve` or `resolve_gap` must yield Some"),
+                    }) {
+                    Ok(v) => v,
+                    Err(v) => v,
+                }
+            }
         }
     }
 }
