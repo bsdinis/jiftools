@@ -11,7 +11,7 @@ use crate::itree::diff::{
 use crate::itree::interval::{
     AnonIntervalData, Interval, IntervalData, LogicalInterval, RefIntervalData,
 };
-use crate::itree::itree_node::RawITreeNode;
+use crate::itree::itree_node::IntermediateITreeNode;
 use crate::itree::{ITree, ITreeView};
 use crate::jif::JifRaw;
 use crate::utils::{page_align, PAGE_SIZE};
@@ -382,10 +382,8 @@ impl JifRawPheader {
     pub(crate) fn from_materialized(
         jif: JifPheader,
         string_map: &BTreeMap<String, usize>,
-        itree_nodes: &mut Vec<RawITreeNode>,
+        itree_nodes: &mut Vec<IntermediateITreeNode>,
         deduper: &mut Deduper,
-        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
-        last_data_offset: &mut u64,
     ) -> JifRawPheader {
         match jif {
             JifPheader::Anonymous {
@@ -400,12 +398,7 @@ impl JifRawPheader {
 
                     itree_nodes.reserve(itree.nodes.len());
                     for node in itree.nodes {
-                        let new_node = RawITreeNode::from_materialized_anon(
-                            node,
-                            deduper,
-                            token_map,
-                            last_data_offset,
-                        );
+                        let new_node = IntermediateITreeNode::from_materialized_anon(node, deduper);
                         itree_nodes.push(new_node)
                     }
 
@@ -436,12 +429,7 @@ impl JifRawPheader {
 
                     itree_nodes.reserve(itree.nodes.len());
                     for node in itree.nodes {
-                        let new_node = RawITreeNode::from_materialized_ref(
-                            node,
-                            deduper,
-                            token_map,
-                            last_data_offset,
-                        );
+                        let new_node = IntermediateITreeNode::from_materialized_ref(node, deduper);
                         itree_nodes.push(new_node)
                     }
 

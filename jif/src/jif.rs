@@ -4,13 +4,14 @@
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
-use crate::itree::interval::{AnonIntervalData, LogicalInterval, RefIntervalData};
-use crate::itree::itree_node::{ITreeNode, RawITreeNode};
+use crate::itree::interval::{AnonIntervalData, LogicalInterval, RawInterval, RefIntervalData};
+use crate::itree::itree_node::{ITreeNode, IntermediateITreeNode, RawITreeNode};
 use crate::itree::ITree;
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::page_align;
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
 use std::str::from_utf8;
@@ -227,6 +228,73 @@ impl Jif {
 }
 
 impl JifRaw {
+    /// Order the data segments keeping in mind the ordering in the ord_chunks
+    /// Assumptions:
+    ///  - intervals in [`ITree`]s are unique
+    ///  - intervals don't overlap
+    ///  - ordering chunks span only one interval
+    fn order_data_segments(
+        itree_nodes: Vec<IntermediateITreeNode>,
+        ord_chunks: &[OrdChunk],
+        mut data_offset: u64,
+    ) -> (BTreeMap<DedupToken, (u64, u64)>, Vec<RawITreeNode>) {
+        // TODO(test): test the ordering of data segments
+        let mut intervals = {
+            let mut v = itree_nodes
+                .iter()
+                .flat_map(|n| n.ranges.iter())
+                .map(|ival| (ival, false))
+                .collect::<Vec<_>>();
+            v.sort_by_key(|(ival, _touched)| ival.start);
+            v
+        };
+
+        let mut token_map = BTreeMap::new();
+        let mut raw_intervals = BTreeMap::new();
+
+        for chunk in ord_chunks {
+            // if an ordering chunk is not found it is ignored
+            if let Ok(idx) = intervals.binary_search_by(|(ival, _)| {
+                if ival.start > chunk.vaddr {
+                    Ordering::Greater
+                } else if ival.end <= chunk.vaddr {
+                    Ordering::Less
+                } else {
+                    Ordering::Equal
+                }
+            }) {
+                // if we already serialized this, we can continue
+                if intervals[idx].1 {
+                    continue;
+                }
+
+                intervals[idx].1 = true;
+
+                let new_interval = RawInterval::from_intermediate(
+                    intervals[idx].0,
+                    &mut token_map,
+                    &mut data_offset,
+                );
+
+                raw_intervals.insert((new_interval.start, new_interval.end), new_interval);
+            }
+        }
+
+        for inter in intervals.iter_mut().filter(|(_ival, touched)| !touched) {
+            let new_interval =
+                RawInterval::from_intermediate(inter.0, &mut token_map, &mut data_offset);
+
+            raw_intervals.insert((new_interval.start, new_interval.end), new_interval);
+        }
+
+        let raw_itree_nodes = itree_nodes
+            .into_iter()
+            .map(|itree_node| RawITreeNode::from_intermediate(itree_node, &mut raw_intervals))
+            .collect();
+
+        (token_map, raw_itree_nodes)
+    }
+
     /// Construct a raw JIF from a materialized one
     pub fn from_materialized(mut jif: Jif) -> Self {
         // print pheaders in order
@@ -250,10 +318,8 @@ impl JifRaw {
                 .collect::<BTreeMap<_, _>>()
         };
 
-        let data_offset = jif.data_offset();
-        let mut last_data_offset = jif.data_offset();
         let mut itree_nodes = Vec::new();
-        let mut token_map = BTreeMap::new();
+        let data_offset = jif.data_offset();
         let pheaders = jif
             .pheaders
             .into_iter()
@@ -263,8 +329,6 @@ impl JifRaw {
                     &string_map,
                     &mut itree_nodes,
                     &mut jif.deduper,
-                    &mut token_map,
-                    &mut last_data_offset,
                 )
             })
             .collect::<Vec<_>>();
@@ -290,6 +354,8 @@ impl JifRaw {
             s
         };
 
+        let (token_map, itree_nodes) =
+            Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
         let data_segments = jif.deduper.destructure(token_map);
 
         JifRaw {

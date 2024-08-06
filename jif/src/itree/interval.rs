@@ -34,6 +34,17 @@ pub struct Interval<Data: IntervalData> {
     pub(crate) data: Data,
 }
 
+/// Intermediate representation for intervals
+///
+/// This is done so we can first extract the interval from a materialized ITree
+/// And then, independently, order the data segments
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct IntermediateInterval {
+    pub(crate) start: u64,
+    pub(crate) end: u64,
+    pub(crate) data: IntermediateIntervalData,
+}
+
 /// Raw interval representation
 ///
 /// We consider an interval valid if `start != u64::MAX` and `end != u64::MAX`
@@ -66,43 +77,16 @@ pub enum RefIntervalData {
     None,
 }
 
-impl From<&Interval<AnonIntervalData>> for LogicalInterval {
-    fn from(value: &Interval<AnonIntervalData>) -> Self {
-        LogicalInterval {
-            start: value.start,
-            end: value.end,
-            source: (&value.data).into(),
-        }
-    }
-}
+/// Data for an intermediate interval
+///
+/// Note that there are no more owned intervals, so this can be [`Copy`]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntermediateIntervalData {
+    Ref(DedupToken),
+    Zero,
 
-impl From<&Interval<RefIntervalData>> for LogicalInterval {
-    fn from(value: &Interval<RefIntervalData>) -> Self {
-        LogicalInterval {
-            start: value.start,
-            end: value.end,
-            source: (&value.data).into(),
-        }
-    }
-}
-
-impl From<&AnonIntervalData> for DataSource {
-    fn from(value: &AnonIntervalData) -> Self {
-        match value {
-            AnonIntervalData::None => DataSource::Zero,
-            AnonIntervalData::Owned(_) | AnonIntervalData::Ref(_) => DataSource::Private,
-        }
-    }
-}
-
-impl From<&RefIntervalData> for DataSource {
-    fn from(value: &RefIntervalData) -> Self {
-        match value {
-            RefIntervalData::None => DataSource::Shared,
-            RefIntervalData::Owned(_) | RefIntervalData::Ref(_) => DataSource::Private,
-            RefIntervalData::Zero => DataSource::Zero,
-        }
-    }
+    #[default]
+    None,
 }
 
 /// Generic Interval Data
@@ -175,6 +159,67 @@ impl IntervalData for RefIntervalData {
             Some(deduper.get(*token))
         } else {
             None
+        }
+    }
+}
+
+impl IntervalData for IntermediateIntervalData {
+    fn is_zero(&self) -> bool {
+        matches!(self, IntermediateIntervalData::Zero)
+    }
+    fn is_none(&self) -> bool {
+        matches!(self, IntermediateIntervalData::None)
+    }
+    fn is_data(&self) -> bool {
+        matches!(self, IntermediateIntervalData::Ref(_))
+    }
+    fn take_data(&mut self) -> Option<Vec<u8>> {
+        None
+    }
+    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
+        if let IntermediateIntervalData::Ref(token) = self {
+            Some(deduper.get(*token))
+        } else {
+            None
+        }
+    }
+}
+
+impl From<&Interval<AnonIntervalData>> for LogicalInterval {
+    fn from(value: &Interval<AnonIntervalData>) -> Self {
+        LogicalInterval {
+            start: value.start,
+            end: value.end,
+            source: (&value.data).into(),
+        }
+    }
+}
+
+impl From<&Interval<RefIntervalData>> for LogicalInterval {
+    fn from(value: &Interval<RefIntervalData>) -> Self {
+        LogicalInterval {
+            start: value.start,
+            end: value.end,
+            source: (&value.data).into(),
+        }
+    }
+}
+
+impl From<&AnonIntervalData> for DataSource {
+    fn from(value: &AnonIntervalData) -> Self {
+        match value {
+            AnonIntervalData::None => DataSource::Zero,
+            AnonIntervalData::Owned(_) | AnonIntervalData::Ref(_) => DataSource::Private,
+        }
+    }
+}
+
+impl From<&RefIntervalData> for DataSource {
+    fn from(value: &RefIntervalData) -> Self {
+        match value {
+            RefIntervalData::None => DataSource::Shared,
+            RefIntervalData::Owned(_) | RefIntervalData::Ref(_) => DataSource::Private,
+            RefIntervalData::Zero => DataSource::Zero,
         }
     }
 }
@@ -310,6 +355,78 @@ impl Interval<RefIntervalData> {
     }
 }
 
+impl IntermediateInterval {
+    /// Length of the mapped interval
+    pub(crate) fn len(&self) -> u64 {
+        if self.is_none() {
+            0
+        } else {
+            self.end - self.start
+        }
+    }
+
+    /// Check if the interval actually maps something or is just a stub
+    pub(crate) fn is_none(&self) -> bool {
+        self.start == u64::MAX || self.end == u64::MAX || self.data.is_none()
+    }
+
+    /// Check if the interval maps to the zero page
+    pub(crate) fn is_zero(&self) -> bool {
+        self.data.is_zero()
+    }
+
+    pub(crate) fn from_materialized_anon(
+        interval: Interval<AnonIntervalData>,
+        deduper: &mut Deduper,
+    ) -> Self {
+        match interval.data {
+            AnonIntervalData::None => IntermediateInterval::default(),
+            AnonIntervalData::Owned(interval_data) => {
+                let token = deduper.insert(interval_data);
+
+                IntermediateInterval {
+                    start: interval.start,
+                    end: interval.end,
+                    data: IntermediateIntervalData::Ref(token),
+                }
+            }
+            AnonIntervalData::Ref(token) => IntermediateInterval {
+                start: interval.start,
+                end: interval.end,
+                data: IntermediateIntervalData::Ref(token),
+            },
+        }
+    }
+
+    pub(crate) fn from_materialized_ref(
+        interval: Interval<RefIntervalData>,
+        deduper: &mut Deduper,
+    ) -> Self {
+        match interval.data {
+            RefIntervalData::None => IntermediateInterval::default(),
+            RefIntervalData::Zero => IntermediateInterval {
+                start: interval.start,
+                end: interval.end,
+                data: IntermediateIntervalData::Zero,
+            },
+            RefIntervalData::Owned(interval_data) => {
+                let token = deduper.insert(interval_data);
+
+                IntermediateInterval {
+                    start: interval.start,
+                    end: interval.end,
+                    data: IntermediateIntervalData::Ref(token),
+                }
+            }
+            RefIntervalData::Ref(token) => IntermediateInterval {
+                start: interval.start,
+                end: interval.end,
+                data: IntermediateIntervalData::Ref(token),
+            },
+        }
+    }
+}
+
 impl RawInterval {
     pub(crate) const fn serialized_size() -> usize {
         3 * std::mem::size_of::<u64>()
@@ -319,96 +436,40 @@ impl RawInterval {
         RawInterval { start, end, offset }
     }
 
-    pub(crate) fn from_materialized_anon(
-        interval: Interval<AnonIntervalData>,
-        deduper: &mut Deduper,
-        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
-        last_data_offset: &mut u64,
-    ) -> Self {
-        match interval.data {
-            AnonIntervalData::None => RawInterval::default(),
-            AnonIntervalData::Owned(interval_data) => {
-                let data_len = interval_data.len() as u64;
-                let token = deduper.insert(interval_data);
-                let range = token_map.entry(token).or_insert_with(|| {
-                    let range = (*last_data_offset, *last_data_offset + data_len);
-                    *last_data_offset += data_len;
-                    range
-                });
-
-                RawInterval {
-                    start: interval.start,
-                    end: interval.end,
-                    offset: range.0,
-                }
-            }
-            AnonIntervalData::Ref(token) => {
-                let data_len = interval.len();
-                let range = token_map.entry(token).or_insert_with(|| {
-                    let range = (*last_data_offset, *last_data_offset + data_len);
-                    *last_data_offset += data_len;
-                    range
-                });
-
-                RawInterval {
-                    start: interval.start,
-                    end: interval.end,
-                    offset: range.0,
-                }
-            }
-        }
-    }
-
-    pub(crate) fn from_materialized_ref(
-        interval: Interval<RefIntervalData>,
-        deduper: &mut Deduper,
-        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
-        last_data_offset: &mut u64,
-    ) -> Self {
-        match interval.data {
-            RefIntervalData::None => RawInterval::default(),
-            RefIntervalData::Zero => RawInterval {
-                start: interval.start,
-                end: interval.end,
-                offset: u64::MAX,
-            },
-            RefIntervalData::Owned(interval_data) => {
-                let data_len = interval_data.len() as u64;
-                let token = deduper.insert(interval_data);
-                let range = token_map.entry(token).or_insert_with(|| {
-                    let range = (*last_data_offset, *last_data_offset + data_len);
-                    *last_data_offset += data_len;
-                    range
-                });
-
-                RawInterval {
-                    start: interval.start,
-                    end: interval.end,
-                    offset: range.0,
-                }
-            }
-            RefIntervalData::Ref(token) => {
-                let data_len = interval.len();
-                let range = token_map.entry(token).or_insert_with(|| {
-                    let range = (*last_data_offset, *last_data_offset + data_len);
-                    *last_data_offset += data_len;
-                    range
-                });
-
-                RawInterval {
-                    start: interval.start,
-                    end: interval.end,
-                    offset: range.0,
-                }
-            }
-        }
-    }
-
     pub(crate) fn len(&self) -> u64 {
         if self.is_empty() {
             0
         } else {
             self.end - self.start
+        }
+    }
+
+    pub(crate) fn from_intermediate(
+        inter: &IntermediateInterval,
+        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
+        data_offset: &mut u64,
+    ) -> Self {
+        match inter.data {
+            IntermediateIntervalData::None => RawInterval::default(),
+            IntermediateIntervalData::Zero => RawInterval {
+                start: inter.start,
+                end: inter.end,
+                offset: u64::MAX,
+            },
+            IntermediateIntervalData::Ref(token) => {
+                let data_len = inter.len();
+                let range = token_map.entry(token).or_insert_with(|| {
+                    let range = (*data_offset, *data_offset + data_len);
+                    *data_offset += data_len;
+                    range
+                });
+
+                RawInterval {
+                    start: inter.start,
+                    end: inter.end,
+                    offset: range.0,
+                }
+            }
         }
     }
 
@@ -438,6 +499,16 @@ impl<Data: IntervalData + Default> Default for Interval<Data> {
     }
 }
 
+impl Default for IntermediateInterval {
+    fn default() -> Self {
+        IntermediateInterval {
+            start: u64::MAX,
+            end: u64::MAX,
+            data: IntermediateIntervalData::default(),
+        }
+    }
+}
+
 impl Default for RawInterval {
     fn default() -> Self {
         RawInterval {
@@ -449,6 +520,26 @@ impl Default for RawInterval {
 }
 
 impl<Data: IntervalData + std::fmt::Debug> std::fmt::Debug for Interval<Data> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_none() {
+            f.debug_struct("EmptyInterval").finish()
+        } else if self.is_zero() {
+            f.write_fmt(format_args!(
+                "[{:#x}; {:#x}) -> <zero-page>",
+                &self.start, &self.end
+            ))
+        } else {
+            f.write_fmt(format_args!(
+                "[{:#x}; {:#x}) -> <private-data: {:#x} B>",
+                &self.start,
+                &self.end,
+                self.len()
+            ))
+        }
+    }
+}
+
+impl std::fmt::Debug for IntermediateInterval {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_none() {
             f.debug_struct("EmptyInterval").finish()

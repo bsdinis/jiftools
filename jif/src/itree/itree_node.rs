@@ -3,7 +3,7 @@
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::{ITreeNodeError, ITreeNodeResult};
 use crate::itree::interval::{
-    AnonIntervalData, Interval, IntervalData, RawInterval, RefIntervalData,
+    AnonIntervalData, IntermediateInterval, Interval, IntervalData, RawInterval, RefIntervalData,
 };
 use std::collections::BTreeMap;
 
@@ -16,6 +16,12 @@ pub(crate) const IVAL_PER_NODE: usize = FANOUT - 1;
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ITreeNode<Data: IntervalData> {
     pub(crate) ranges: [Interval<Data>; IVAL_PER_NODE],
+}
+
+/// Intermediate node: holds [`IntermediateInterval`]s, before the data is ordered
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct IntermediateITreeNode {
+    pub(crate) ranges: [IntermediateInterval; IVAL_PER_NODE],
 }
 
 /// Node in a raw interval tree
@@ -111,43 +117,61 @@ impl<Data: IntervalData> ITreeNode<Data> {
     }
 }
 
-impl RawITreeNode {
-    /// Size of the [`RawITreeNode`] when serialized
-    pub(crate) const fn serialized_size() -> usize {
-        IVAL_PER_NODE * RawInterval::serialized_size()
-    }
-
-    /// Build an `ITreeNode`
-    pub(crate) fn new(ranges: [RawInterval; IVAL_PER_NODE]) -> Self {
-        RawITreeNode { ranges }
-    }
-
+impl IntermediateITreeNode {
     /// Lower an anonymous ITreeNode into a raw
     pub(crate) fn from_materialized_anon(
         node: ITreeNode<AnonIntervalData>,
         deduper: &mut Deduper,
-        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
-        last_data_offset: &mut u64,
     ) -> Self {
-        let mut raw = RawITreeNode::default();
-        for (raw_interval, interval) in raw.ranges.iter_mut().zip(node.ranges.into_iter()) {
-            *raw_interval =
-                RawInterval::from_materialized_anon(interval, deduper, token_map, last_data_offset);
+        let mut inter = IntermediateITreeNode::default();
+        for (inter_interval, interval) in inter.ranges.iter_mut().zip(node.ranges.into_iter()) {
+            *inter_interval = IntermediateInterval::from_materialized_anon(interval, deduper);
         }
-        raw
+        inter
     }
 
     /// Lower a reference ITreeNode into a raw
     pub(crate) fn from_materialized_ref(
         node: ITreeNode<RefIntervalData>,
         deduper: &mut Deduper,
-        token_map: &mut BTreeMap<DedupToken, (u64, u64)>,
-        last_data_offset: &mut u64,
+    ) -> Self {
+        let mut inter = IntermediateITreeNode::default();
+        for (inter_interval, interval) in inter.ranges.iter_mut().zip(node.ranges.into_iter()) {
+            *inter_interval = IntermediateInterval::from_materialized_ref(interval, deduper);
+        }
+        inter
+    }
+}
+
+impl RawITreeNode {
+    /// Size of the [`RawITreeNode`] when serialized
+    pub(crate) const fn serialized_size() -> usize {
+        IVAL_PER_NODE * RawInterval::serialized_size()
+    }
+
+    /// Build an [`RawITreeNode`]
+    pub(crate) fn new(ranges: [RawInterval; IVAL_PER_NODE]) -> Self {
+        RawITreeNode { ranges }
+    }
+
+    /// Create a [`RawITreeNode`] from an [`IntermediateITreeNode`]
+    /// This is done after serializing the data, so we already have the [`RawInterval`]s, but they
+    /// are disorganized
+    ///
+    /// # Panics: this function panics if the interval is not present in `raw_intervals`
+    pub(crate) fn from_intermediate(
+        intermediate: IntermediateITreeNode,
+        raw_intervals: &mut BTreeMap<(u64, u64), RawInterval>,
     ) -> Self {
         let mut raw = RawITreeNode::default();
-        for (raw_interval, interval) in raw.ranges.iter_mut().zip(node.ranges.into_iter()) {
-            *raw_interval =
-                RawInterval::from_materialized_ref(interval, deduper, token_map, last_data_offset);
+        for (raw_interval, inter_interval) in
+            raw.ranges.iter_mut().zip(intermediate.ranges.into_iter())
+        {
+            if inter_interval.is_none() {
+                continue;
+            }
+
+            *raw_interval = raw_intervals.remove(&(inter_interval.start, inter_interval.end)).expect("cannot convert IntermediateInterval to RawInterval: `raw_intervals` is badly constructed");
         }
         raw
     }
