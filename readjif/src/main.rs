@@ -114,10 +114,10 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
         RawCommand::Ord(o) => {
             let ords = jif.ord_chunks();
             match o {
-                OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
+                OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
-                    "{:#x?}",
+                    "{:x?}",
                     if start < ords.len() {
                         &ords[start..]
                     } else {
@@ -125,10 +125,10 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                     }
                 ),
                 OrdCmd::Range(IndexRange::LeftOpen { end }) => {
-                    println!("{:#x?}", &ords[..std::cmp::min(end, ords.len())])
+                    println!("{:x?}", &ords[..std::cmp::min(end, ords.len())])
                 }
                 OrdCmd::Range(IndexRange::Closed { start, end }) => println!(
-                    "{:#x?}",
+                    "{:x?}",
                     if start < ords.len() {
                         &ords[start..std::cmp::min(end, ords.len())]
                     } else {
@@ -137,7 +137,7 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                 ),
                 OrdCmd::Range(IndexRange::Index(idx)) => {
                     if idx < ords.len() {
-                        println!("{:#x?}", &ords[idx]);
+                        println!("{:x?}", &ords[idx]);
                     }
                 }
             }
