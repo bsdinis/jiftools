@@ -57,8 +57,8 @@ impl OrdChunk {
             return true;
         }
 
-        // we can only merge if the addresses belong in the same itree interval (logically)
-        // and, consequently, in the same pheader
+        // we can only merge if the addresses belong in the same itree
+        // interval (logically) and, consequently, in the same pheader
         if jif.resolve(vaddr) != jif.resolve(self.vaddr) {
             return false;
         }
@@ -141,7 +141,7 @@ mod test {
     }
 
     #[test]
-    fn merge() {
+    fn merge_diff_sources() {
         let jif = gen_jif(&[
             ((0x10000, 0x20000), &[(0x10000, 0x18000)]),
             ((0x20000, 0x30000), &[(0x28000, 0x30000)]),
@@ -172,6 +172,27 @@ mod test {
             assert_eq!(ord, OrdChunk::new(0x18000, 0x8));
 
             assert!(!ord.merge_page(&jif, 0x20000));
+        }
+    }
+
+    #[test]
+    fn merge_same_sources() {
+        let jif = gen_jif(&[((0x10000, 0x20000), &[]), ((0x20000, 0x30000), &[])]);
+
+        {
+            let mut ord = OrdChunk::new(0x11000, 0xe);
+
+            assert!(ord.merge_page(&jif, 0x10000));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0xf));
+
+            assert!(ord.merge_page(&jif, 0x17000));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0xf));
+
+            assert!(ord.merge_page(&jif, 0x1f000));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x10));
+
+            assert!(!ord.merge_page(&jif, 0x20000));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x10));
         }
     }
 }
