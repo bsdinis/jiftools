@@ -3,7 +3,7 @@ use crate::jif::Jif;
 use crate::utils::{page_align_down, PAGE_SIZE};
 
 /// An ordering chunk represents a range of pages to pre-fault
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default, PartialEq, Eq, Copy, Clone)]
 pub struct OrdChunk {
     /// Page number of the first page
     pub(crate) vaddr: u64,

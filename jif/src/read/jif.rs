@@ -1,9 +1,9 @@
 use crate::error::*;
 use crate::itree::itree_node::RawITreeNode;
-use crate::jif::{JifRaw, JIF_MAGIC_HEADER};
+use crate::jif::{JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
 use crate::ord::OrdChunk;
 use crate::pheader::JifRawPheader;
-use crate::utils::{is_page_aligned, read_u32, seek_to_page};
+use crate::utils::{is_page_aligned, read_u32, read_u64, seek_to_page};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, Read, Seek};
@@ -136,6 +136,7 @@ impl JifRaw {
             ord_chunks,
             data_offset,
             data_segments,
+            n_prefetch: header.n_prefetch,
         })
     }
 }
@@ -146,6 +147,7 @@ struct JifHeader {
     strings_size: u32,
     itrees_size: u32,
     ord_size: u32,
+    n_prefetch: u64,
 }
 
 impl JifHeader {
@@ -172,11 +174,20 @@ impl JifHeader {
             return Err(JifError::BadAlignment);
         }
 
+        let version = read_u32(r, &mut buffer)?;
+        if version != JIF_VERSION {
+            return Err(JifError::BadVersion);
+        }
+
+        let mut buffer = [0u8; 8];
+        let n_prefetch = read_u64(r, &mut buffer)?;
+
         Ok(JifHeader {
             n_pheaders,
             strings_size,
             itrees_size,
             ord_size,
+            n_prefetch,
         })
     }
 }

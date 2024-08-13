@@ -67,6 +67,10 @@ enum Command {
         /// Filepath of the timestamped access log (defaults to `stdin`)
         #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
         time_log: Option<std::path::PathBuf>,
+
+        // True if doing prefetch setup (breaking intervals per ord chunks).
+        #[arg(long)]
+        setup_prefetch: bool,
     },
 }
 
@@ -77,11 +81,15 @@ fn main() -> anyhow::Result<()> {
 
     let mut jif = Jif::from_reader(&mut input_file)?;
 
+    let mut reorder = false;
     match args.command {
         None => {}
         Some(Command::Rename { old_path, new_path }) => jif.rename_file(&old_path, &new_path),
         Some(Command::BuildItrees) => jif.build_itrees().context("failed to build ITrees")?,
-        Some(Command::AddOrd { time_log }) => {
+        Some(Command::AddOrd {
+            time_log,
+            setup_prefetch,
+        }) => {
             let tsa_log = match time_log {
                 Some(fname) => {
                     let file =
@@ -96,6 +104,7 @@ fn main() -> anyhow::Result<()> {
 
             let tsa_log = dedup_and_sort(tsa_log);
             let ords = construct_ord_chunks(&jif, tsa_log);
+            reorder = setup_prefetch;
 
             jif.add_ordering_info(ords)?;
         }
@@ -103,7 +112,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut output_file =
         BufWriter::new(File::create(&args.output_file).context("failed to open output JIF")?);
-    let raw = JifRaw::from_materialized(jif);
+    let raw = JifRaw::from_materialized(jif, reorder);
 
     if args.show {
         println!("{:#x?}", raw);

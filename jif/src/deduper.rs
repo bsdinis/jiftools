@@ -64,7 +64,7 @@ impl Deduper {
     }
 
     pub(crate) fn destructure(
-        mut self,
+        &mut self,
         token_map: BTreeMap<DedupToken, (u64, u64)>,
     ) -> BTreeMap<(u64, u64), Vec<u8>> {
         let intervals = {
