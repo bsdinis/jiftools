@@ -4,6 +4,7 @@
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
+use crate::itree::interval::DataSource;
 use crate::itree::interval::IntermediateInterval;
 use crate::itree::interval::Interval;
 use crate::itree::interval::{AnonIntervalData, LogicalInterval, RawInterval, RefIntervalData};
@@ -12,7 +13,6 @@ use crate::itree::ITree;
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::{page_align, PAGE_SIZE};
-
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
@@ -130,7 +130,7 @@ impl Jif {
 
     // Use ordering chunks to break apart intervals so that data pages can be reordered.
     // Returns the ordering chunks that were used.
-    pub fn fracture_by_ord_chunk(&mut self) -> Vec<OrdChunk> {
+    pub fn fracture_by_ord_chunk(&mut self) {
         let mut token_map = BTreeMap::new();
         let mut data_offset = 0;
 
@@ -197,9 +197,7 @@ impl Jif {
         let mut data_segments: BTreeMap<(u64, u64), Vec<u8>> = self.deduper.destructure(token_map);
 
         // For each ordering chunk, find a corresponding data interval and fragment the interval.
-        // Chunks with corresponding intervals are removed from self.ord_chunks and placed in jifchunks.
-        let mut jifchunks = Vec::new();
-        self.ord_chunks.retain(|chunk| {
+        for chunk in &self.ord_chunks {
             let rph = hdrs
                 .iter_mut()
                 .find(|((start, end), _prot, _r1, _r2, _ivs)| {
@@ -207,7 +205,7 @@ impl Jif {
                 });
 
             if rph.is_none() {
-                return true;
+                continue;
             }
 
             let (_rng, _prot, _x, _y, ref mut ivs) = rph.unwrap();
@@ -217,10 +215,8 @@ impl Jif {
                 .position(|v| v.offset < u64::MAX && v.start <= chunk.vaddr && v.end > chunk.vaddr);
 
             if pos.is_none() {
-                return true;
+                continue;
             }
-
-            jifchunks.push(*chunk);
 
             let chunksz = chunk.n_pages * PAGE_SIZE as u64;
             let chunk_va_end = chunk.vaddr + chunksz;
@@ -271,8 +267,7 @@ impl Jif {
                 (chunk_off_start, chunk_off_end),
                 data[left_size as usize..(left_size + chunksz) as usize].to_vec(),
             );
-            return false;
-        });
+        }
 
         // Rebuild pheaders and itrees.
         let (new_dedup, new_map) = Deduper::from_data_map(data_segments);
@@ -311,11 +306,8 @@ impl Jif {
             }
         }
 
-        headers.sort_by_key(|ph| ph.virtual_range().0);
         self.pheaders = headers;
         self.deduper = new_dedup;
-
-        jifchunks
     }
 
     /// Construct the interval trees of all the pheaders
@@ -501,13 +493,12 @@ impl JifRaw {
 
     /// Construct a raw JIF from a materialized one
     pub fn from_materialized(mut jif: Jif, prefetch_chunks: bool) -> Self {
+        if prefetch_chunks {
+            jif.fracture_by_ord_chunk()
+        }
+
         // print pheaders in order
         jif.pheaders.sort_by_key(|phdr| phdr.virtual_range().0);
-
-        let jifchunks = match prefetch_chunks {
-            true => Some(jif.fracture_by_ord_chunk()),
-            false => None,
-        };
 
         let string_map = {
             let strings = jif
@@ -563,13 +554,15 @@ impl JifRaw {
             s
         };
 
-        let v = if jifchunks.is_none() {
-            &jif.ord_chunks
-        } else {
-            &jifchunks.as_ref().unwrap()
-        };
+        // Sort chunks by kind.
+        jif.ord_chunks.sort_by_key(|c| match c.kind {
+            DataSource::Zero => 1,
+            DataSource::Shared => 2,
+            DataSource::Private => 0,
+        });
+
         let (token_map, itree_nodes, prefetch_pages) =
-            Self::order_data_segments(itree_nodes, v, data_offset);
+            Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
         let data_segments = jif.deduper.destructure(token_map);
 
         JifRaw {
@@ -811,26 +804,32 @@ pub(crate) mod test {
             OrdChunk {
                 vaddr: 0x10000,
                 n_pages: 1,
+                kind: DataSource::Zero,
             },
             OrdChunk {
                 vaddr: 0x7000,
                 n_pages: 1,
+                kind: DataSource::Zero,
             },
             OrdChunk {
                 vaddr: 0x8000,
                 n_pages: 1,
+                kind: DataSource::Zero,
             },
             OrdChunk {
                 vaddr: 0x6000,
                 n_pages: 1,
+                kind: DataSource::Zero,
             },
             OrdChunk {
                 vaddr: 0x3000,
                 n_pages: 2,
+                kind: DataSource::Zero,
             },
             OrdChunk {
                 vaddr: 0x1000,
                 n_pages: 1,
+                kind: DataSource::Zero,
             },
         ];
 

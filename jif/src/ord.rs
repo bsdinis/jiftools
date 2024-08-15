@@ -1,15 +1,23 @@
 //! The ordering segments
+use crate::itree::interval::DataSource;
 use crate::jif::Jif;
 use crate::utils::{page_align_down, PAGE_SIZE};
 
+pub const ORD_SHARED_FLAG: u64 = 1 << 63;
+pub const ORD_PRIVATE_FLAG: u64 = 1 << 62;
+pub const ORD_ZERO_FLAG: u64 = 1 << 61;
+pub const ORD_FLAG_MASK: u64 = ORD_ZERO_FLAG - 1;
+
 /// An ordering chunk represents a range of pages to pre-fault
-#[derive(Default, PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub struct OrdChunk {
     /// Page number of the first page
     pub(crate) vaddr: u64,
 
     /// Number of pages
     pub(crate) n_pages: u64,
+
+    pub(crate) kind: DataSource,
 }
 
 impl OrdChunk {
@@ -21,11 +29,13 @@ impl OrdChunk {
     /// Create a new ordering chunk
     ///
     /// Will silently clamp the `vaddr`
-    pub fn new(vaddr: u64, n_pages: u64) -> Self {
+    pub fn new(vaddr: u64, n_pages: u64, kind: DataSource) -> Self {
         OrdChunk {
             vaddr: page_align_down(vaddr),
 
             n_pages,
+
+            kind,
         }
     }
 
@@ -101,12 +111,13 @@ mod test {
 
     #[test]
     fn empty_ord() {
-        let ord = OrdChunk::new(0x1234, 0);
+        let ord = OrdChunk::new(0x1234, 0, DataSource::Zero);
         assert_eq!(
             ord,
             OrdChunk {
                 vaddr: 0x1000,
-                n_pages: 0
+                n_pages: 0,
+                kind: DataSource::Zero
             }
         );
         assert!(ord.is_empty());
@@ -114,12 +125,13 @@ mod test {
 
     #[test]
     fn single_page_ord() {
-        let ord = OrdChunk::new(0x1234, 1);
+        let ord = OrdChunk::new(0x1234, 1, DataSource::Zero);
         assert_eq!(
             ord,
             OrdChunk {
                 vaddr: 0x1000,
-                n_pages: 1
+                n_pages: 1,
+                kind: DataSource::Zero
             }
         );
         assert!(!ord.is_empty());
@@ -128,12 +140,13 @@ mod test {
 
     #[test]
     fn multi_page_ord() {
-        let ord = OrdChunk::new(0x1234, 10);
+        let ord = OrdChunk::new(0x1234, 10, DataSource::Zero);
         assert_eq!(
             ord,
             OrdChunk {
                 vaddr: 0x1000,
-                n_pages: 10
+                n_pages: 10,
+                kind: DataSource::Zero
             }
         );
         assert!(!ord.is_empty());
@@ -148,28 +161,28 @@ mod test {
         ]);
 
         {
-            let mut ord = OrdChunk::new(0x11000, 0x6);
+            let mut ord = OrdChunk::new(0x11000, 0x6, DataSource::Zero);
 
             assert!(ord.merge_page(&jif, 0x10000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0x7));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x7, DataSource::Zero));
 
             assert!(ord.merge_page(&jif, 0x17000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0x8));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x8, DataSource::Zero));
 
             assert!(!ord.merge_page(&jif, 0x1f000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0x8));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x8, DataSource::Zero));
         }
 
         {
-            let mut ord = OrdChunk::new(0x19000, 0x6);
+            let mut ord = OrdChunk::new(0x19000, 0x6, DataSource::Zero);
 
             assert!(ord.merge_page(&jif, 0x18000));
-            assert_eq!(ord, OrdChunk::new(0x18000, 0x7));
+            assert_eq!(ord, OrdChunk::new(0x18000, 0x7, DataSource::Zero));
 
             assert!(!ord.merge_page(&jif, 0x17000));
 
             assert!(ord.merge_page(&jif, 0x1f000));
-            assert_eq!(ord, OrdChunk::new(0x18000, 0x8));
+            assert_eq!(ord, OrdChunk::new(0x18000, 0x8, DataSource::Zero));
 
             assert!(!ord.merge_page(&jif, 0x20000));
         }
@@ -180,19 +193,19 @@ mod test {
         let jif = gen_jif(&[((0x10000, 0x20000), &[]), ((0x20000, 0x30000), &[])]);
 
         {
-            let mut ord = OrdChunk::new(0x11000, 0xe);
+            let mut ord = OrdChunk::new(0x11000, 0xe, DataSource::Zero);
 
             assert!(ord.merge_page(&jif, 0x10000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0xf));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0xf, DataSource::Zero));
 
             assert!(ord.merge_page(&jif, 0x17000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0xf));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0xf, DataSource::Zero));
 
             assert!(ord.merge_page(&jif, 0x1f000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0x10));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x10, DataSource::Zero));
 
             assert!(!ord.merge_page(&jif, 0x20000));
-            assert_eq!(ord, OrdChunk::new(0x10000, 0x10));
+            assert_eq!(ord, OrdChunk::new(0x10000, 0x10, DataSource::Zero));
         }
     }
 }
