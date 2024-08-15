@@ -1,5 +1,5 @@
 use crate::itree::itree_node::RawITreeNode;
-use crate::jif::{JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
+use crate::jif::{JifHeaderBinary, JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
 use crate::ord::OrdChunk;
 use crate::utils::{is_page_aligned, page_align, PAGE_SIZE};
 
@@ -42,13 +42,7 @@ impl JifRaw {
         w.write_all(&JIF_VERSION.to_le_bytes())?;
         w.write_all(&self.n_prefetch.to_le_bytes())?;
 
-        cursor += JIF_MAGIC_HEADER.len()
-            + std::mem::size_of::<u32>() // n_pheaders
-            + std::mem::size_of::<u32>() // strings_size
-            + std::mem::size_of::<u32>() // itrees_size
-            + std::mem::size_of::<u32>() // ord_size
-            + std::mem::size_of::<u32>() // version
-            + std::mem::size_of::<u64>(); // n_prefetch
+        cursor += std::mem::size_of::<JifHeaderBinary>();
 
         // pheaders
         for pheader in &self.pheaders {

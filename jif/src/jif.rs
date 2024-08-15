@@ -46,6 +46,18 @@ pub struct JifRaw {
     pub(crate) n_prefetch: u64,
 }
 
+#[allow(dead_code)]
+#[repr(packed)]
+pub struct JifHeaderBinary {
+    magic: [u8; 4],
+    n_pheaders: u32,
+    strings_size: u32,
+    itrees_size: u32,
+    ord_size: u32,
+    version: u32,
+    n_prefetch: u64,
+}
+
 impl Jif {
     /// Materialize a [`Jif`] from its raw counterpart
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
@@ -88,11 +100,7 @@ impl Jif {
 
     /// Compute the data offset (i.e., the offset where data starts being laid out)
     pub fn data_offset(&self) -> u64 {
-        let header_size = JIF_MAGIC_HEADER.len()
-            + std::mem::size_of::<u32>() // n_pheaders
-            + std::mem::size_of::<u32>() // strings_size
-            + std::mem::size_of::<u32>() // itrees_size
-            + std::mem::size_of::<u32>(); // ord_size
+        let header_size = std::mem::size_of::<JifHeaderBinary>();
 
         let pheader_size = self.pheaders.len() * JifRawPheader::serialized_size();
 
