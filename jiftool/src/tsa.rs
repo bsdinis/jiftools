@@ -13,11 +13,13 @@ pub(crate) fn construct_ord_chunks(jif: &Jif, log: Vec<TimestampedAccess>) -> Ve
             // we couldn't merge, push the chunk
             chunks.push(chunk);
 
-            chunk = OrdChunk::new(
-                tsa.addr as u64,
-                1, /* n pages */
-                jif.resolve(tsa.addr as u64).unwrap().source,
-            );
+            let iv = jif.resolve(tsa.addr as u64);
+            if iv.is_none() {
+                println!("Warning: unresolved address in ordering data: {}", tsa.addr);
+                continue;
+            }
+
+            chunk = OrdChunk::new(tsa.addr as u64, 1 /* n pages */, iv.unwrap().source);
         }
     }
 
