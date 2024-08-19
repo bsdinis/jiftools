@@ -18,6 +18,10 @@ impl OrdChunk {
             ORD_ZERO_FLAG => DataSource::Zero,
             ORD_PRIVATE_FLAG => DataSource::Private,
             ORD_SHARED_FLAG => DataSource::Shared,
+            0 => {
+                assert!(vaddr == 0);
+                DataSource::Zero
+            }
             _ => panic!("bad flag"),
         };
 
