@@ -176,7 +176,10 @@ impl JifHeader {
 
         let version = read_u32(r, &mut buffer)?;
         if version != JIF_VERSION {
-            return Err(JifError::BadVersion);
+            return Err(JifError::BadVersion {
+                expected: JIF_VERSION,
+                found: version,
+            });
         }
 
         let mut buffer = [0u8; 8];

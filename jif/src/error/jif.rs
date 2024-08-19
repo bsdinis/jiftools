@@ -24,7 +24,10 @@ pub enum JifError {
     BadHeader,
 
     // Version mismatch.
-    BadVersion,
+    BadVersion {
+        expected: u32,
+        found: u32,
+    },
 
     /// A particular section was poorly aligned
     BadAlignment,
@@ -89,7 +92,12 @@ impl std::fmt::Display for JifError {
             }
             JifError::BadHeader => f.write_str("bad header"),
             JifError::BadAlignment => f.write_str("bad alignment"),
-            JifError::BadVersion => f.write_str("bad version"),
+            JifError::BadVersion { expected, found } => {
+                f.write_str("bad version, expected v")?;
+                expected.fmt(f)?;
+                f.write_str("found v")?;
+                found.fmt(f)
+            }
             JifError::BadPheader {
                 pheader_idx,
                 pheader_err,
@@ -141,7 +149,7 @@ impl std::error::Error for JifError {
             JifError::BadMagic => None,
             JifError::BadHeader => None,
             JifError::BadAlignment => None,
-            JifError::BadVersion => None,
+            JifError::BadVersion { .. } => None,
             JifError::BadPheader { pheader_err, .. } => Some(pheader_err),
             JifError::BadITreeNode { itree_node_err, .. } => Some(itree_node_err),
             JifError::BadOrdChunk { ord_chunk_err, .. } => Some(ord_chunk_err),
