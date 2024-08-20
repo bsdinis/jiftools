@@ -53,6 +53,11 @@ impl OrdChunk {
         }
     }
 
+    /// First address of each page
+    pub fn pages(&self) -> impl Iterator<Item = u64> {
+        (self.vaddr..=(self.last_page_addr())).step_by(PAGE_SIZE)
+    }
+
     /// Attempt to merge a page (`vaddr`) into the ordering chunk, which happens if:
     ///  - the page is contiguous to it (or is already in it)
     ///  - **and** they are serviced by the same pheader

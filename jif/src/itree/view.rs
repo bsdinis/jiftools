@@ -3,6 +3,7 @@
 use crate::deduper::Deduper;
 use crate::itree::interval::{AnonIntervalData, DataSource, LogicalInterval, RefIntervalData};
 use crate::itree::ITree;
+use crate::utils::PAGE_SIZE;
 
 /// Generic view over the two possible types of [`ITree`]
 pub enum ITreeView<'a> {
@@ -14,6 +15,14 @@ pub enum ITreeView<'a> {
 }
 
 impl<'a> ITreeView<'a> {
+    /// Virtual range spanned by the interval tree
+    pub fn virtual_range(&self) -> (u64, u64) {
+        match self {
+            ITreeView::Anon { inner } => inner.virtual_range(),
+            ITreeView::Ref { inner } => inner.virtual_range(),
+        }
+    }
+
     /// Size of the [`ITree`] in number of nodes
     pub fn n_nodes(&self) -> usize {
         match self {
@@ -94,6 +103,39 @@ impl<'a> ITreeView<'a> {
                     Err(v) => v,
                 }
             }
+        }
+    }
+
+    /// Resolve address in the interval tree into a private data page
+    // TODO(array_chunks)
+    pub fn resolve_data(&self, addr: u64, deduper: &'a Deduper) -> Option<&'a [u8]> {
+        match self {
+            ITreeView::Anon { inner } => {
+                inner.resolve(addr).ok().and_then(|ival| match ival.data {
+                    AnonIntervalData::None => None,
+                    AnonIntervalData::Owned(ref data) => {
+                        let offset = (addr - ival.start) as usize;
+                        Some(&data[offset..(offset + PAGE_SIZE)])
+                    }
+                    AnonIntervalData::Ref(tok) => {
+                        let data = deduper.get(tok);
+                        let offset = (addr - ival.start) as usize;
+                        Some(&data[offset..(offset + PAGE_SIZE)])
+                    }
+                })
+            }
+            ITreeView::Ref { inner } => inner.resolve(addr).ok().and_then(|ival| match ival.data {
+                RefIntervalData::None | RefIntervalData::Zero => None,
+                RefIntervalData::Owned(ref data) => {
+                    let offset = (addr - ival.start) as usize;
+                    Some(&data[offset..(offset + PAGE_SIZE)])
+                }
+                RefIntervalData::Ref(tok) => {
+                    let data = deduper.get(tok);
+                    let offset = (addr - ival.start) as usize;
+                    Some(&data[offset..(offset + PAGE_SIZE)])
+                }
+            }),
         }
     }
 }

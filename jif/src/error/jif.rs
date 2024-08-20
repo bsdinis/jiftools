@@ -95,7 +95,7 @@ impl std::fmt::Display for JifError {
             JifError::BadVersion { expected, found } => {
                 f.write_str("bad version, expected v")?;
                 expected.fmt(f)?;
-                f.write_str("found v")?;
+                f.write_str(" found v")?;
                 found.fmt(f)
             }
             JifError::BadPheader {

@@ -294,6 +294,11 @@ impl JifPheader {
         self.itree().resolve(addr)
     }
 
+    /// Resolve an address into a private data page
+    pub(crate) fn resolve_data<'a>(&'a self, addr: u64, deduper: &'a Deduper) -> Option<&'a [u8]> {
+        self.itree().resolve_data(addr, deduper)
+    }
+
     /// The virtual address space range that this pheader maps
     pub fn virtual_range(&self) -> (u64, u64) {
         match self {
@@ -388,6 +393,28 @@ impl JifPheader {
         match self {
             JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
             JifPheader::Reference { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
+        }
+    }
+
+    /// Iterate over the private pages in the pheader
+    pub(crate) fn iter_shared_regions<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = (&str, u64, u64)> + 'a> {
+        match self {
+            JifPheader::Anonymous { .. } => Box::new(std::iter::empty()),
+            JifPheader::Reference {
+                itree,
+                ref_path,
+                ref_offset,
+                vaddr_range,
+                ..
+            } => Box::new(itree.iter_unmapped_regions().map(|(start, end)| {
+                (
+                    ref_path.as_str(),
+                    start - vaddr_range.0 + *ref_offset,
+                    end - vaddr_range.0 + *ref_offset,
+                )
+            })),
         }
     }
 }

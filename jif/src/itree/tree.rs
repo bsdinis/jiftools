@@ -154,6 +154,11 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         ITree::new(nodes, virtual_range)
     }
 
+    /// Virtual range spanned by the interval tree
+    pub fn virtual_range(&self) -> (u64, u64) {
+        self.virtual_range
+    }
+
     /// Size of the [`ITree`] in number of nodes
     pub fn n_nodes(&self) -> usize {
         self.nodes.len()
@@ -214,6 +219,26 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         self.in_order_intervals()
             .filter_map(|i| i.data.get_data(deduper).map(|d| d.chunks_exact(PAGE_SIZE)))
             .flatten()
+    }
+
+    /// Iterate over the unmapped regions (i.e., things that are backed by the shared files)
+    pub fn iter_unmapped_regions(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        std::iter::once((0, self.virtual_range.0))
+            .chain(self.in_order_intervals().map(|iv| (iv.start, iv.end)))
+            .zip(
+                self.in_order_intervals()
+                    .map(|iv| (iv.start, iv.end))
+                    .chain(std::iter::once((self.virtual_range.1, u64::MAX))),
+            )
+            .filter_map(
+                |((_s1, e1), (s2, _e2))| {
+                    if e1 < s2 {
+                        Some((e1, s2))
+                    } else {
+                        None
+                    }
+                },
+            )
     }
 
     /// Resolve an address in the interval tree, or into the gap in the interval tree it belongs to
