@@ -216,6 +216,18 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             .flatten()
     }
 
+    /// Iterate over the unmapped regions (i.e., things that are backed by the shared files)
+    pub fn iter_unmapped_regions(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        std::iter::once((0, self.virtual_range.0))
+            .chain(self.in_order_intervals().map(|iv| (iv.start, iv.end)))
+            .zip(
+                self.in_order_intervals()
+                    .map(|iv| (iv.start, iv.end))
+                    .chain(std::iter::once((self.virtual_range.1, u64::MAX))),
+            )
+            .filter_map(|((_s1, e1), (s2, _e2))| if e1 < s2 { Some((s2, e1)) } else { None })
+    }
+
     /// Resolve an address in the interval tree, or into the gap in the interval tree it belongs to
     pub fn resolve(&self, addr: u64) -> Result<&Interval<Data>, (u64, u64)> {
         fn resolve_aux<Data: IntervalData>(

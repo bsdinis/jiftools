@@ -412,6 +412,13 @@ impl Jif {
             .flat_map(|phdr| phdr.iter_private_pages(&self.deduper))
     }
 
+    /// Iterate over all the shared regions
+    pub fn iter_shared_regions(&self) -> impl Iterator<Item = (&str, u64, u64)> {
+        self.pheaders
+            .iter()
+            .flat_map(|phdr| phdr.iter_shared_regions())
+    }
+
     /// Resolve an address into a [`DataSource`]
     pub fn resolve(&self, addr: u64) -> Option<LogicalInterval> {
         self.pheaders

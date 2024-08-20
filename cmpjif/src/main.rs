@@ -41,8 +41,8 @@ if __name__ == '__main__':
 
     upset_data = upsetplot.from_contents(data)
     upset = upsetplot.plot(upset_data, show_counts='{:,}')
-    plt.suptitle('Intersection of private data among jif snapshots')
-    plt.savefig(sys.argv[1])
+    plt.suptitle('Intersection of {} regions among jif snapshots'.format(sys.argv[1]))
+    plt.savefig(sys.argv[2])
 ";
 
 #[derive(Parser, Debug)]
@@ -56,13 +56,25 @@ struct Cli {
     #[arg(value_name = "FILE", num_args = 2.., value_hint = clap::ValueHint::FilePath)]
     jif_files: Vec<std::path::PathBuf>,
 
+    /// Consider only the shared pages
+    #[arg(short, long, conflicts_with = "private")]
+    shared: bool,
+
+    /// Consider only the private pages
+    #[arg(short, long, conflicts_with = "shared")]
+    private: bool,
+
+    /// Consider only the pages in the ordering segment
+    #[arg(short, long)]
+    ordering: bool,
+
     /// Compare only the shared pages
     #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     output: std::path::PathBuf,
 }
 
-/// Build a multi set (set with count) of hashes of pages
-fn build_hash_multiset(jif: &Jif) -> HashSet<Sha256Hash> {
+/// Build a set of hashes of the private pages
+fn build_private_pages_hash_set(jif: &Jif) -> HashSet<Sha256Hash> {
     fn sha256_page(page: &[u8]) -> Sha256Hash {
         let mut hasher = Sha256::new();
         hasher.update(page);
@@ -70,6 +82,13 @@ fn build_hash_multiset(jif: &Jif) -> HashSet<Sha256Hash> {
     }
 
     jif.iter_private_pages().map(sha256_page).collect()
+}
+
+/// Build a set of hashes of pages
+fn build_shared_pages_set(jif: &Jif) -> HashSet<(String, u64, u64)> {
+    jif.iter_shared_regions()
+        .map(|(string, start, end)| (string.to_string(), start, end))
+        .collect()
 }
 
 /// Open the JIF file
@@ -80,15 +99,26 @@ fn open_jif(path: &std::path::Path) -> anyhow::Result<Jif> {
     .context("failed to read jif")
 }
 
+#[derive(Default)]
+struct JifDigest {
+    // digest of each private page
+    private_pages: HashSet<Sha256Hash>,
+
+    // <pathname, offset> for shared pages
+    shared_pages: HashSet<(String, u64, u64)>,
+}
+
 /// Plot the intersection between the files
 /// Constructs an [upset plot](https://en.wikipedia.org/wiki/UpSet_plot) by shelling out to python
 fn plot_intersections(
-    hashes: HashMap<std::path::PathBuf, HashSet<Sha256Hash>>,
+    digests: HashMap<std::path::PathBuf, JifDigest>,
+    plot_title: &str,
     output_filename: PathBuf,
 ) -> anyhow::Result<()> {
     let mut child = Command::new("python")
         .arg("-c")
         .arg(PLOT_UPSET_PY)
+        .arg(plot_title)
         .arg(format!("{}", output_filename.display()))
         .stdin(Stdio::piped())
         .spawn()
@@ -99,21 +129,24 @@ fn plot_intersections(
         .take()
         .context("failed to open pipe to plotter")?;
 
-    for (path, hashset) in hashes {
+    for (path, digest) in digests {
         stdin
             .write_all(format!("{}: ", path.display()).as_bytes())
             .context("failed to write")?;
 
-        for hash in hashset {
-            for byte in hash {
-                stdin
-                    .write_all(format!("{:x}", byte).as_bytes())
-                    .context("failed to write")?;
-            }
+        for hash in digest.private_pages {
+            let str = hash.map(|byte| format!("{:x}", byte)).join("");
             stdin
-                .write_all(", ".as_bytes())
+                .write_all(format!("private_{}, ", str).as_bytes())
                 .context("failed to write")?;
         }
+
+        for (pathname, start, end) in digest.shared_pages {
+            stdin
+                .write_all(format!("shared_{}:{:x}-{:x}, ", pathname, start, end).as_bytes())
+                .context("failed to write")?;
+        }
+
         stdin
             .write_all("\n".as_bytes())
             .context("failed to write")?;
@@ -129,9 +162,27 @@ fn main() -> anyhow::Result<()> {
         .into_iter()
         .map(|p| {
             let jif = open_jif(&p)?;
-            Ok::<_, anyhow::Error>((p, build_hash_multiset(&jif)))
+
+            let mut digest = JifDigest::default();
+
+            if !cli.shared {
+                digest.private_pages = build_private_pages_hash_set(&jif);
+            }
+
+            if !cli.private {
+                digest.shared_pages = build_shared_pages_set(&jif);
+            }
+
+            Ok::<_, anyhow::Error>((p, digest))
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
 
-    plot_intersections(hashes, cli.output)
+    let plot_title = if cli.shared {
+        "shared"
+    } else if cli.private {
+        "private"
+    } else {
+        "all"
+    };
+    plot_intersections(hashes, plot_title, cli.output)
 }
