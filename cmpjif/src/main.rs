@@ -9,6 +9,7 @@
 //! # cmpjif --shared a.jif b.jif c.jif # compare a.jif, b.jif and c.jif, comparing only the shared pages
 //! ```
 
+use jif::itree::interval::DataSource;
 use jif::*;
 
 use std::collections::{HashMap, HashSet};
@@ -73,22 +74,72 @@ struct Cli {
     output: std::path::PathBuf,
 }
 
+fn sha256_page(page: &[u8]) -> Sha256Hash {
+    let mut hasher = Sha256::new();
+    hasher.update(page);
+    hasher.finalize().into()
+}
+
 /// Build a set of hashes of the private pages
 fn build_private_pages_hash_set(jif: &Jif) -> HashSet<Sha256Hash> {
-    fn sha256_page(page: &[u8]) -> Sha256Hash {
-        let mut hasher = Sha256::new();
-        hasher.update(page);
-        hasher.finalize().into()
-    }
-
     jif.iter_private_pages().map(sha256_page).collect()
 }
 
 /// Build a set of hashes of pages
-fn build_shared_pages_set(jif: &Jif) -> HashSet<(String, u64, u64)> {
+fn build_shared_pages_set(jif: &Jif) -> HashSet<(String, u64)> {
     jif.iter_shared_regions()
-        .map(|(string, start, end)| (string.to_string(), start, end))
+        .flat_map(|(string, start, end)| {
+            (start..end)
+                .step_by(0x1000)
+                .map(|addr| (string.to_string(), addr))
+        })
         .collect()
+}
+
+/// Build a digest from the ordering section
+fn build_ordering_digest(jif: &Jif, include_private: bool, include_shared: bool) -> JifDigest {
+    let mut private = Vec::new();
+    let mut shared = Vec::new();
+
+    for page in jif.ord_chunks().iter().flat_map(|ord| ord.pages()) {
+        match jif.resolve(page) {
+            None => {
+                eprintln!(
+                    "{:#x?} is not mapped by the JIF, but is in the ordering segment",
+                    page
+                );
+            }
+            Some(interval) => match interval.source {
+                DataSource::Zero => {}
+                DataSource::Shared => {
+                    if include_shared {
+                        let pheader = jif
+                            .mapping_pheader(page)
+                            .expect("if the address resolves, it must have a pheader");
+                        let offset_into_region = page - pheader.virtual_range().0;
+                        let filename = pheader.pathname().expect("if the address resolves into a shared region, it must have a filename").to_string();
+                        let ref_offset = pheader.ref_offset().expect("if the address maps to a shared region, it must have a base file offset");
+                        shared.push((filename, ref_offset + offset_into_region));
+                    }
+                }
+                DataSource::Private => {
+                    if include_private {
+                        let page_data = jif
+                            .resolve_data(page)
+                            .expect("if it resolves and is private it must have data");
+
+                        assert_eq!(page_data.len(), 0x1000, "page is not page sized");
+                        private.push(sha256_page(page_data));
+                    }
+                }
+            },
+        }
+    }
+
+    JifDigest {
+        private_pages: private.into_iter().collect(),
+        shared_pages: shared.into_iter().collect(),
+    }
 }
 
 /// Open the JIF file
@@ -105,7 +156,7 @@ struct JifDigest {
     private_pages: HashSet<Sha256Hash>,
 
     // <pathname, offset> for shared pages
-    shared_pages: HashSet<(String, u64, u64)>,
+    shared_pages: HashSet<(String, u64)>,
 }
 
 /// Plot the intersection between the files
@@ -141,9 +192,9 @@ fn plot_intersections(
                 .context("failed to write")?;
         }
 
-        for (pathname, start, end) in digest.shared_pages {
+        for (pathname, offset) in digest.shared_pages {
             stdin
-                .write_all(format!("shared_{}:{:x}-{:x}, ", pathname, start, end).as_bytes())
+                .write_all(format!("shared_{}:{:x}, ", pathname, offset).as_bytes())
                 .context("failed to write")?;
         }
 
@@ -163,15 +214,24 @@ fn main() -> anyhow::Result<()> {
         .map(|p| {
             let jif = open_jif(&p)?;
 
-            let mut digest = JifDigest::default();
+            let digest = if cli.ordering {
+                build_ordering_digest(
+                    &jif,
+                    !cli.shared,  /* include private */
+                    !cli.private, /* include shared */
+                )
+            } else {
+                let mut digest = JifDigest::default();
+                if !cli.shared {
+                    digest.private_pages = build_private_pages_hash_set(&jif);
+                }
 
-            if !cli.shared {
-                digest.private_pages = build_private_pages_hash_set(&jif);
-            }
+                if !cli.private {
+                    digest.shared_pages = build_shared_pages_set(&jif);
+                }
 
-            if !cli.private {
-                digest.shared_pages = build_shared_pages_set(&jif);
-            }
+                digest
+            };
 
             Ok::<_, anyhow::Error>((p, digest))
         })

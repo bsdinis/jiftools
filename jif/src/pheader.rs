@@ -295,6 +295,11 @@ impl JifPheader {
         self.itree().resolve(addr)
     }
 
+    /// Resolve an address into a private data page
+    pub(crate) fn resolve_data<'a>(&'a self, addr: u64, deduper: &'a Deduper) -> Option<&'a [u8]> {
+        self.itree().resolve_data(addr, deduper)
+    }
+
     /// The virtual address space range that this pheader maps
     pub fn virtual_range(&self) -> (u64, u64) {
         match self {

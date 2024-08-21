@@ -426,6 +426,13 @@ impl Jif {
             .find(|phdr| phdr.mapps_addr(addr))
             .map(|phdr| phdr.resolve(addr))
     }
+
+    /// Resolve an address into the private data
+    pub fn resolve_data(&self, addr: u64) -> Option<&[u8]> {
+        self.pheaders
+            .iter()
+            .find_map(|phdr| phdr.resolve_data(addr, &self.deduper))
+    }
 }
 
 impl JifRaw {

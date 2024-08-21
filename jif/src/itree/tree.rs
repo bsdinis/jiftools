@@ -154,6 +154,11 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         ITree::new(nodes, virtual_range)
     }
 
+    /// Virtual range spanned by the interval tree
+    pub fn virtual_range(&self) -> (u64, u64) {
+        self.virtual_range
+    }
+
     /// Size of the [`ITree`] in number of nodes
     pub fn n_nodes(&self) -> usize {
         self.nodes.len()
