@@ -175,7 +175,6 @@ impl JifPheader {
             ref_offset: u64,
             chroot: &Option<std::path::PathBuf>,
         ) -> ITreeResult<ITree<RefIntervalData>> {
-            assert!(!chroot.is_none());
             let mut file = {
                 let ref_path = PathBuf::from(refs);
                 let full_path = match chroot {
