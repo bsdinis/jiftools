@@ -66,7 +66,7 @@ struct Cli {
     private: bool,
 
     /// Consider only the pages in the ordering segment
-    #[arg(short, long)]
+    #[arg(long)]
     ordering: bool,
 
     /// Compare only the shared pages
@@ -144,10 +144,14 @@ fn build_ordering_digest(jif: &Jif, include_private: bool, include_shared: bool)
 
 /// Open the JIF file
 fn open_jif(path: &std::path::Path) -> anyhow::Result<Jif> {
-    Jif::from_reader(&mut BufReader::new(
-        File::open(path).context("failed to open file")?,
+    Jif::from_reader(&mut BufReader::new(File::open(path).context(format!(
+        "failed to open file {}",
+        path.to_str().unwrap_or("<invalid path>")
+    ))?))
+    .context(format!(
+        "failed to read jif {}",
+        path.to_str().unwrap_or("<invalid path>")
     ))
-    .context("failed to read jif")
 }
 
 #[derive(Default)]
