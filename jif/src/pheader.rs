@@ -18,6 +18,7 @@ use crate::utils::{page_align, PAGE_SIZE};
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::PathBuf;
 
 /// VMA protection bits
 #[repr(u8)]
@@ -136,7 +137,11 @@ impl JifPheader {
     }
 
     /// Build an itree for a particular pheader
-    pub fn build_itree(&mut self, deduper: &Deduper) -> ITreeResult<()> {
+    pub fn build_itree(
+        &mut self,
+        deduper: &Deduper,
+        chroot: &Option<std::path::PathBuf>,
+    ) -> ITreeResult<()> {
         fn build_anon_from_zero(
             itree: &mut ITree<AnonIntervalData>,
             virtual_range: (u64, u64),
@@ -166,11 +171,26 @@ impl JifPheader {
         fn build_from_diff(
             overlay: &[u8],
             virtual_range: (u64, u64),
-            ref_path: &str,
+            refs: &str,
             ref_offset: u64,
+            chroot: &Option<std::path::PathBuf>,
         ) -> ITreeResult<ITree<RefIntervalData>> {
+            assert!(!chroot.is_none());
             let mut file = {
-                let mut f = BufReader::new(File::open(ref_path)?);
+                let ref_path = PathBuf::from(refs);
+                let full_path = match chroot {
+                    None => ref_path,
+                    Some(cpath) => {
+                        let mut cp = cpath.clone();
+                        if ref_path.is_absolute() {
+                            cp.push(ref_path.iter().skip(1).collect::<std::path::PathBuf>());
+                        } else {
+                            cp.push(ref_path);
+                        }
+                        cp
+                    }
+                };
+                let mut f = BufReader::new(File::open(&full_path)?);
                 f.seek(SeekFrom::Start(ref_offset))?;
                 f
             };
@@ -239,7 +259,8 @@ impl JifPheader {
                     if data_interval.start != vaddr_range.0 {
                         build_ref_from_zero(itree, *vaddr_range, deduper)?
                     } else if let Some(overlay) = data_interval.data.get_data(deduper) {
-                        *itree = build_from_diff(overlay, *vaddr_range, ref_path, *ref_offset)?;
+                        *itree =
+                            build_from_diff(overlay, *vaddr_range, ref_path, *ref_offset, chroot)?;
                     } else {
                         panic!("we checked this was a data interval but there was no data");
                     }

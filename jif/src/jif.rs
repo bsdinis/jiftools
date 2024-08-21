@@ -311,10 +311,10 @@ impl Jif {
     }
 
     /// Construct the interval trees of all the pheaders
-    pub fn build_itrees(&mut self) -> JifResult<()> {
+    pub fn build_itrees(&mut self, chroot: Option<std::path::PathBuf>) -> JifResult<()> {
         for pheader in self.pheaders.iter_mut() {
             pheader
-                .build_itree(&self.deduper)
+                .build_itree(&self.deduper, &chroot)
                 .map_err(|error| JifError::InvalidITree {
                     virtual_range: pheader.virtual_range(),
                     error,

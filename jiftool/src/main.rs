@@ -57,7 +57,10 @@ enum Command {
         new_path: String,
     },
     /// Build the interval trees in the JIF
-    BuildItrees,
+    BuildItrees {
+        #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        chroot_path: Option<std::path::PathBuf>,
+    },
 
     /// Add an ordering section
     ///
@@ -85,7 +88,9 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         None => {}
         Some(Command::Rename { old_path, new_path }) => jif.rename_file(&old_path, &new_path),
-        Some(Command::BuildItrees) => jif.build_itrees().context("failed to build ITrees")?,
+        Some(Command::BuildItrees { chroot_path }) => jif
+            .build_itrees(chroot_path)
+            .context("failed to build ITrees")?,
         Some(Command::AddOrd {
             time_log,
             setup_prefetch,
