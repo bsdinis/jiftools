@@ -272,9 +272,16 @@ fn print_intersections(digests: HashMap<std::path::PathBuf, JifDigest>) {
         stats.insert(path, stat);
     }
 
+    let max_width = stats
+        .iter()
+        .filter_map(|(path, _stat)| path.as_path().to_str().map(|s| s.len()))
+        .chain(std::iter::once("filename".len()))
+        .max()
+        .unwrap_or("filename".len());
+
     println!(
-        "{:^50} | {:^15} | {:^15} | {:^15} | unique but shared |",
-        "filename", "zero", "private", "truly shared"
+        "{:^max_width$} | {:^8} | {:^15} | {:^15} | {:^15} | unique but shared |",
+        "filename", "total", "zero", "private", "truly shared",
     );
     for (path, stat) in stats {
         let total = stat.zero_pages
@@ -282,8 +289,9 @@ fn print_intersections(digests: HashMap<std::path::PathBuf, JifDigest>) {
             + stat.truly_shared_pages
             + stat.unique_shared_pages;
         println!(
-            "{:50} | {:7} ({:4.1}%) | {:7} ({:4.1}%) | {:7} ({:4.1}%) | {:9} ({:4.1}%) |",
+            "{:max_width$} | {:8} | {:7} ({:4.1}%) | {:7} ({:4.1}%) | {:7} ({:4.1}%) | {:9} ({:4.1}%) |",
             path.as_path().display(),
+            total,
             stat.zero_pages,
             percentage(stat.zero_pages, total),
             stat.private_pages,
