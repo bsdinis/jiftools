@@ -333,24 +333,14 @@ impl Jif {
 
     /// Add a new ordering section
     pub fn add_ordering_info(&mut self, ordering_info: Vec<OrdChunk>) -> JifResult<()> {
-        fn check_and_process(jif: &Jif, ordering_info: Vec<OrdChunk>) -> JifResult<Vec<OrdChunk>> {
-            ordering_info
-                .into_iter()
-                .filter_map(|chunk| {
-                    // we ignore unmapped addresses
-                    // there might've been a recorded chunk that was only mapped after
-                    // the snapshot point, which means it will be mapped after the restore is
-                    // complete (i.e., there is no way to prefetch)
-                    if chunk.is_empty() || jif.mapping_pheader_idx(chunk.vaddr).is_none() {
-                        None
-                    } else {
-                        Some(Ok(chunk))
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()
-        }
-
-        self.ord_chunks = check_and_process(self, ordering_info)?;
+        self.ord_chunks = ordering_info
+            .into_iter()
+            .filter(|chunk| !chunk.is_empty())
+            .inspect(|chunk| {
+                self.mapping_pheader_idx(chunk.vaddr)
+                    .expect(&format!("bad ord chunk {}", chunk.vaddr));
+            })
+            .collect();
         Ok(())
     }
 
