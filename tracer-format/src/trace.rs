@@ -37,7 +37,7 @@ pub fn dedup_and_sort(log: Vec<TimestampedAccess>) -> Vec<TimestampedAccess> {
     }
 
     let mut log = map.into_values().collect::<Vec<_>>();
-    log.sort_by_key(|tsa| tsa.usecs);
+    log.sort_by_key(|tsa| tsa.addr);
 
     log
 }
