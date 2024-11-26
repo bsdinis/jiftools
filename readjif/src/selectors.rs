@@ -12,6 +12,7 @@ jif.pages                          total number of pages
 ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
 ord.len                            number of ord chunks
+ord.size                           number of pages in the ordering section
 
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
@@ -57,6 +58,7 @@ pub(crate) enum OrdCmd {
     All,
     Range(IndexRange),
     Len,
+    Size,
 }
 
 #[derive(Debug, Default)]
@@ -99,6 +101,7 @@ itrees.len                         number of interval trees
 ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
 ord.len                            number of ord chunks
+ord.size                           number of pages in the ordering section
 
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
@@ -215,10 +218,12 @@ impl TryFrom<Option<String>> for MaterializedCommand {
 
                         MaterializedCommand::Ord(OrdCmd::Range(range))
                     } else {
-                        let options = ["", ".len"];
+                        let options = ["", ".len", ".size"];
                         let idx = find_single_option(trimmed, suffix, &options)?;
                         if options[idx] == ".len" {
                             MaterializedCommand::Ord(OrdCmd::Len)
+                        } else if options[idx] == ".size" {
+                            MaterializedCommand::Ord(OrdCmd::Size)
                         } else {
                             MaterializedCommand::Ord(OrdCmd::All)
                         }
@@ -345,10 +350,12 @@ impl TryFrom<Option<String>> for RawCommand {
 
                         RawCommand::Ord(OrdCmd::Range(range))
                     } else {
-                        let options = ["", ".len"];
+                        let options = ["", ".len", ".size"];
                         let idx = find_single_option(trimmed, suffix, &options)?;
                         if options[idx] == ".len" {
                             RawCommand::Ord(OrdCmd::Len)
+                        } else if options[idx] == ".size" {
+                            RawCommand::Ord(OrdCmd::Size)
                         } else {
                             RawCommand::Ord(OrdCmd::All)
                         }

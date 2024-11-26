@@ -44,6 +44,11 @@ impl OrdChunk {
         self.n_pages == 0
     }
 
+    /// Number of pages in the ordering chunk
+    pub fn size(&self) -> u64 {
+        self.n_pages
+    }
+
     /// The address of the last page in the ordering chunk
     pub fn last_page_addr(&self) -> u64 {
         if self.n_pages > 1 {

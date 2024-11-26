@@ -21,6 +21,7 @@
 //! - `ord`: select all the ord chunks
 //! - `ord[<range>]`: select the ord chunks in the range
 //! - `ord.len`: number of ord chunks (incompatible with the range selector)
+//! - `ord.size`: number of pages in the ordering section (incompatible with the range selector)
 //! - `pheader`: select all the pheaders
 //! - `pheader[<range>]`: select the pheaders in the range
 //! - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
@@ -50,6 +51,7 @@
 //! - `ord`: select all the ord chunks
 //! - `ord[<range>]`: select the ord chunks in the range
 //! - `ord.len`: number of ord chunks (incompatible with the range selector)
+//! - `ord.size`: number of pages in the ordering section (incompatible with the range selector)
 //! - `pheader`: select all the pheaders
 //! - `pheader[<range>]`: select the pheaders in the range
 //! - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
@@ -116,6 +118,9 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
             match o {
                 OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
+                OrdCmd::Size => {
+                    println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>())
+                }
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:x?}",
                     if start < ords.len() {
@@ -299,6 +304,9 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
             match o {
                 OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
+                OrdCmd::Size => {
+                    println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>())
+                }
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:#x?}",
                     if start < ords.len() {
