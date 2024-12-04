@@ -90,7 +90,7 @@ pub(crate) enum IntermediateIntervalData {
 }
 
 /// Generic Interval Data
-pub trait IntervalData {
+pub trait IntervalData: Default {
     /// Check if it references the zero page
     fn is_zero(&self) -> bool;
 
@@ -568,6 +568,18 @@ impl std::fmt::Debug for RawInterval {
                 "[{:#x}; {:#x}) -> {:#x}",
                 &self.start, &self.end, &self.offset
             ))
+        }
+    }
+}
+
+impl TryFrom<RefIntervalData> for AnonIntervalData {
+    type Error = ();
+    fn try_from(value: RefIntervalData) -> Result<Self, Self::Error> {
+        match value {
+            RefIntervalData::Zero => Ok(AnonIntervalData::None),
+            RefIntervalData::Ref(tok) => Ok(AnonIntervalData::Ref(tok)),
+            RefIntervalData::Owned(data) => Ok(AnonIntervalData::Owned(data)),
+            RefIntervalData::None => Err(()),
         }
     }
 }

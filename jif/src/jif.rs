@@ -324,6 +324,20 @@ impl Jif {
         Ok(())
     }
 
+    /// Fragment vmas based on their source
+    pub fn fragment(&mut self, chroot: Option<std::path::PathBuf>) -> JifResult<()> {
+        self.pheaders = self
+            .pheaders
+            .drain(..)
+            .map(|pheader| pheader.fragment(&self.deduper, &chroot))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flat_map(|x| x.into_iter())
+            .collect::<Vec<_>>();
+
+        Ok(())
+    }
+
     /// Rename a file globally
     pub fn rename_file(&mut self, old: &str, new: &str) {
         for p in self.pheaders.iter_mut() {

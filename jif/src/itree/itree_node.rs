@@ -71,6 +71,13 @@ impl ITreeNode<RefIntervalData> {
 }
 
 impl<Data: IntervalData> ITreeNode<Data> {
+    /// construct single interval [`ITreeNode`]
+    pub(crate) fn single(interval: Interval<Data>) -> ITreeNode<Data> {
+        let mut node = ITreeNode::default();
+        node.ranges[0] = interval;
+        node
+    }
+
     /// Access the ranges within
     pub(crate) fn ranges(&self) -> &[Interval<Data>] {
         &self.ranges

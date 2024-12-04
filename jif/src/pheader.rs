@@ -275,6 +275,125 @@ impl JifPheader {
         Ok(())
     }
 
+    /// Fragment pheader based on data source
+    pub fn fragment(
+        mut self,
+        deduper: &Deduper,
+        chroot: &Option<std::path::PathBuf>,
+    ) -> JifResult<Vec<JifPheader>> {
+        self.build_itree(deduper, chroot)
+            .map_err(|error| JifError::InvalidITree {
+                virtual_range: self.virtual_range(),
+                error,
+            })?;
+
+        Ok(match self {
+            JifPheader::Anonymous {
+                vaddr_range,
+                itree,
+                prot,
+            } => std::iter::once((0, vaddr_range.0, None))
+                .chain(
+                    itree
+                        .in_order_intervals()
+                        .map(|ival| (ival.start, ival.end, Some(&ival.data))),
+                )
+                .zip(
+                    itree
+                        .in_order_intervals()
+                        .map(|ival| ival.start)
+                        .chain(std::iter::once(vaddr_range.1)),
+                )
+                .flat_map(|((s1, e1, d1), s2)| {
+                    let first_iter: Box<dyn Iterator<Item = JifPheader>> = if let Some(data) = d1 {
+                        Box::new(std::iter::once(JifPheader::Anonymous {
+                            vaddr_range: (s1, e1),
+                            itree: ITree::single((s1, e1), data.clone()),
+                            prot,
+                        }))
+                    } else {
+                        Box::new(std::iter::empty())
+                    };
+                    let second_iter: Box<dyn Iterator<Item = JifPheader>> = if e1 < s2 {
+                        Box::new(std::iter::once(JifPheader::Anonymous {
+                            vaddr_range: (e1, s2),
+                            itree: ITree::single_default((e1, s2)),
+                            prot,
+                        }))
+                    } else {
+                        Box::new(std::iter::empty())
+                    };
+
+                    first_iter.chain(second_iter)
+                })
+                .collect(),
+            JifPheader::Reference {
+                vaddr_range,
+                itree,
+                prot,
+                ref_path,
+                ref_offset,
+            } => std::iter::once((0, vaddr_range.0, None))
+                .chain(
+                    itree
+                        .in_order_intervals()
+                        .map(|ival| (ival.start, ival.end, Some(&ival.data))),
+                )
+                .zip(
+                    itree
+                        .in_order_intervals()
+                        .map(|ival| ival.start)
+                        .chain(std::iter::once(vaddr_range.1)),
+                )
+                .flat_map(|((s1, e1, d1), s2)| {
+                    let first_iter: Box<dyn Iterator<Item = JifPheader>> = match d1 {
+                        Some(data) if data.is_data() => {
+                            Box::new(std::iter::once(JifPheader::Anonymous {
+                                vaddr_range: (s1, e1),
+                                itree: ITree::single(
+                                    (s1, e1),
+                                    data.clone()
+                                        .try_into()
+                                        .expect("we checked it wasn't a reference section"),
+                                ),
+                                prot,
+                            }))
+                        }
+                        Some(data) if data.is_zero() => {
+                            Box::new(std::iter::once(JifPheader::Anonymous {
+                                vaddr_range: (s1, e1),
+                                itree: ITree::single_default((s1, e1)),
+                                prot,
+                            }))
+                        }
+                        Some(_data) => Box::new(std::iter::once(JifPheader::Reference {
+                            vaddr_range: (s1, e1),
+                            itree: ITree::single_default((s1, e1)),
+                            ref_path: ref_path.clone(),
+                            ref_offset: ref_offset + (s1 - vaddr_range.0),
+                            prot,
+                        })),
+                        None => Box::new(std::iter::empty()),
+                    };
+
+                    let second_iter: Box<dyn Iterator<Item = JifPheader>> = if e1 < s2 {
+                        Box::new(std::iter::once(JifPheader::Reference {
+                            vaddr_range: (e1, s2),
+                            itree: ITree::single_default((e1, s2)),
+                            ref_path: ref_path.clone(),
+                            ref_offset: ref_offset + (e1 - vaddr_range.0),
+                            prot,
+                        }))
+                    } else {
+                        Box::new(std::iter::empty())
+                    };
+
+                    first_iter.chain(second_iter)
+                })
+                .collect(),
+        })
+    }
+
     /// Rename the file in this pheader if 1) it has a file and 2) it matches the name
     pub fn rename_file(&mut self, old: &str, new: &str) {
         if let JifPheader::Reference { ref_path, .. } = self {
@@ -643,6 +762,8 @@ impl std::fmt::Debug for JifRawPheader {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+    use crate::itree::test::*;
+
     pub(crate) fn gen_pheader(vaddr_range: (u64, u64), ivals: &[(u64, u64)]) -> JifPheader {
         JifPheader::Anonymous {
             vaddr_range,
@@ -659,6 +780,101 @@ pub(crate) mod test {
             )
             .unwrap(),
             prot: Prot::Read as u8,
+        }
+    }
+
+    #[test]
+    fn fragment_anon_pheader() {
+        let itree = gen_anon_tree();
+        let mut cnt = 0;
+        // ranges are mapped on and off
+        // we query the midpoint in each range
+        for range in VADDRS.into_iter().zip(VADDRS.into_iter().skip(1)) {
+            let addr = (range.0 + range.1) / 2;
+            let resolve = itree.resolve(addr);
+            match cnt % 2 {
+                0 => assert!(matches!(
+                    &resolve.unwrap().data,
+                    &AnonIntervalData::Owned(_)
+                )),
+                1 => assert_eq!(resolve.unwrap_err(), range),
+                _ => unreachable!(),
+            };
+            cnt += 1
+        }
+
+        let pheader = JifPheader::Anonymous {
+            vaddr_range: (VADDR_BEGIN, VADDR_END),
+            itree,
+            prot: Prot::Read as u8,
+        };
+
+        let prot = pheader.prot();
+
+        let deduper = Deduper::default();
+        let pheaders = pheader.fragment(&deduper, &None).unwrap();
+        assert_eq!(pheaders.len(), 16);
+
+        for (cnt, pheader) in pheaders.iter().enumerate() {
+            let cnt = cnt % 2;
+            assert_eq!(prot, pheader.prot());
+            match pheader {
+                JifPheader::Anonymous { itree, .. } if itree.n_intervals() > 0 => {
+                    assert_eq!(cnt, 0)
+                }
+                JifPheader::Anonymous { .. } => assert_eq!(cnt, 1),
+                JifPheader::Reference { .. } => {
+                    assert!(false);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fragment_ref_pheader() {
+        let itree = gen_ref_tree();
+        let mut cnt = 0;
+        // ranges are mapped in an Owned -> Zero -> Ref cycle (Ref is implied)
+        // we query the midpoint in each range
+        for range in VADDRS.into_iter().zip(VADDRS.into_iter().skip(1)) {
+            let addr = (range.0 + range.1) / 2;
+            let resolve = itree.resolve(addr);
+            match cnt % 3 {
+                0 => assert!(matches!(&resolve.unwrap().data, &RefIntervalData::Owned(_))),
+                1 => assert!(matches!(&resolve.unwrap().data, &RefIntervalData::Zero)),
+                2 => assert_eq!(resolve.unwrap_err(), range),
+                _ => unreachable!(),
+            };
+            cnt += 1
+        }
+
+        let pheader = JifPheader::Reference {
+            vaddr_range: (VADDR_BEGIN, VADDR_END),
+            itree,
+            prot: Prot::Read as u8,
+            ref_path: "abc".into(),
+            ref_offset: 0,
+        };
+
+        let prot = pheader.prot();
+
+        let deduper = Deduper::default();
+        let pheaders = pheader.fragment(&deduper, &None).unwrap();
+        assert_eq!(pheaders.len(), 16);
+
+        for (cnt, pheader) in pheaders.iter().enumerate() {
+            let cnt = cnt % 3;
+            assert_eq!(prot, pheader.prot());
+            match pheader {
+                JifPheader::Anonymous { itree, .. } if itree.n_intervals() > 0 => {
+                    assert_eq!(cnt, 0)
+                }
+                JifPheader::Anonymous { .. } => assert_eq!(cnt, 1),
+                JifPheader::Reference { itree, .. } => {
+                    assert_eq!(itree.n_intervals(), 0);
+                    assert_eq!(cnt, 2);
+                }
+            }
         }
     }
 }

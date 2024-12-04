@@ -62,6 +62,12 @@ enum Command {
         chroot_path: Option<std::path::PathBuf>,
     },
 
+    /// Fragment VMAs in the JIF, but still finding zero pages and ref segments
+    Fragment {
+        #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        chroot_path: Option<std::path::PathBuf>,
+    },
+
     /// Add an ordering section
     ///
     /// Ingests a timestamped access log (each line of format `<usecs>: <address>`)
@@ -74,6 +80,14 @@ enum Command {
         // True if doing prefetch setup (breaking intervals per ord chunks).
         #[arg(long)]
         setup_prefetch: bool,
+
+        // fragment the itrees
+        #[arg(long)]
+        fragment: bool,
+
+        // fragment itrees into different vams
+        #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath, num_args = 0..=1, default_missing_value = None)]
+        chroot: Option<std::path::PathBuf>,
     },
 }
 
@@ -91,9 +105,14 @@ fn main() -> anyhow::Result<()> {
         Some(Command::BuildItrees { chroot_path }) => jif
             .build_itrees(chroot_path)
             .context("failed to build ITrees")?,
+        Some(Command::Fragment { chroot_path }) => jif
+            .fragment(chroot_path)
+            .context("failed to fragment vmas")?,
         Some(Command::AddOrd {
             time_log,
             setup_prefetch,
+            fragment,
+            chroot,
         }) => {
             let tsa_log = match time_log {
                 Some(fname) => {
@@ -112,6 +131,9 @@ fn main() -> anyhow::Result<()> {
             reorder = setup_prefetch;
 
             jif.add_ordering_info(ords)?;
+            if fragment {
+                jif.fragment(chroot)?;
+            }
         }
     }
 

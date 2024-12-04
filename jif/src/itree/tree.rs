@@ -95,6 +95,24 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         })
     }
 
+    pub fn single(virtual_range: (u64, u64), data: Data) -> Self {
+        ITree {
+            nodes: vec![ITreeNode::single(Interval {
+                start: virtual_range.0,
+                end: virtual_range.1,
+                data,
+            })],
+            virtual_range,
+        }
+    }
+
+    pub fn single_default(virtual_range: (u64, u64)) -> Self {
+        ITree {
+            nodes: vec![],
+            virtual_range,
+        }
+    }
+
     /// Take ownership of the [`ITree`], leaving it empty
     pub fn take(&mut self) -> Self {
         let nodes = self.nodes.split_off(0);
@@ -411,7 +429,8 @@ pub(crate) mod test {
 
     pub(crate) fn gen_anon_data(cnt: &mut usize, interval_size: usize) -> AnonIntervalData {
         let data = match *cnt % 2 {
-            0 => AnonIntervalData::Owned(vec![*cnt as u8; interval_size]),
+            // cnt + 1 because we don't want accidental zeros
+            0 => AnonIntervalData::Owned(vec![*cnt as u8 + 1; interval_size]),
             1 => AnonIntervalData::None,
             _ => std::unreachable!("mod 2 = [0, 1]"),
         };
@@ -441,7 +460,8 @@ pub(crate) mod test {
 
     pub(crate) fn gen_ref_data(cnt: &mut usize, interval_size: usize) -> RefIntervalData {
         let data = match *cnt % 3 {
-            0 => RefIntervalData::Owned(vec![*cnt as u8; interval_size]),
+            // cnt + 1 because we don't want accidental zeros
+            0 => RefIntervalData::Owned(vec![*cnt as u8 + 1; interval_size]),
             1 => RefIntervalData::Zero,
             2 => RefIntervalData::None,
             _ => std::unreachable!("mod 3 = [0, 1, 2]"),
@@ -514,7 +534,6 @@ pub(crate) mod test {
         // we query the midpoint in each range
         for range in VADDRS.into_iter().zip(VADDRS.into_iter().skip(1)) {
             let addr = (range.0 + range.1) / 2;
-            dbg!(addr, range);
             let resolve = tree.resolve(addr);
             match cnt % 2 {
                 0 => assert!(matches!(
