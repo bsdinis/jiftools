@@ -1,7 +1,6 @@
 //! The pheader representation
 
 use std::collections::{BTreeMap, HashSet};
-use std::u64;
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;

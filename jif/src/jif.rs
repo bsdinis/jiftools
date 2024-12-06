@@ -15,7 +15,6 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
 use std::str::from_utf8;
-use std::u64;
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
 pub(crate) const JIF_VERSION: u32 = 2;
@@ -131,8 +130,7 @@ impl Jif {
     pub fn fracture_by_ord_chunk(&mut self) -> JifResult<()> {
         self.pheaders
             .iter_mut()
-            .map(|p| p.fracture_by_ord_chunk(&self.ord_chunks, &self.deduper))
-            .collect::<JifResult<()>>()?;
+            .try_for_each(|p| p.fracture_by_ord_chunk(&self.ord_chunks, &self.deduper))?;
         self.pheaders
             .iter_mut()
             .for_each(|p| p.dedup(&mut self.deduper));
@@ -188,7 +186,7 @@ impl Jif {
             .filter(|chunk| !chunk.is_empty())
             .inspect(|chunk| {
                 self.mapping_pheader_idx(chunk.vaddr)
-                    .expect(&format!("bad ord chunk {}", chunk.vaddr));
+                    .unwrap_or_else(|| panic!("bad ord chunk {}", chunk.vaddr));
             })
             .collect();
         Ok(())

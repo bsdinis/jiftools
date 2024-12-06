@@ -87,10 +87,8 @@ impl Deduper {
                 "badly constructed data segment: there is a gap"
             );
 
-            let data = self.canonical.remove(&tok.0).expect(&format!(
-                "failed to get token {}: by construction, data should be here",
-                tok.0
-            ));
+            let data = self.canonical.remove(&tok.0).unwrap_or_else(|| panic!("failed to get token {}: by construction, data should be here",
+                tok.0));
 
             assert_eq!(
                 data.len(),

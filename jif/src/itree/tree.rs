@@ -25,8 +25,7 @@ use crate::utils::PAGE_SIZE;
 /// looking up an address can yield 3 options
 ///  - Address is found, with offset `u64::MAX`: means the address is backed by the zero page
 ///  - Address is found, with a valid offset: means the address is backed by the page at that offset of the JIF file
-///  - Address is not found: means the address is backed by the reference file (with the offset
-///  being the offset of the virtual address into the virtual address range)
+///  - Address is not found: means the address is backed by the reference file (with the offset being the offset of the virtual address into the virtual address range)
 ///
 pub struct ITree<Data: IntervalData> {
     pub(crate) nodes: Vec<ITreeNode<Data>>,
