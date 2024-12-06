@@ -58,6 +58,11 @@ impl OrdChunk {
         }
     }
 
+    /// The end of the memory region referenced by the ordering chunk
+    pub fn end(&self) -> u64 {
+        self.last_page_addr() + PAGE_SIZE as u64
+    }
+
     /// First address of each page
     pub fn pages(&self) -> impl Iterator<Item = u64> {
         (self.vaddr..=(self.last_page_addr())).step_by(PAGE_SIZE)

@@ -1,7 +1,7 @@
 //! Data deduplication logic
 
 use std::collections::hash_map::RandomState;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
 
 /// Tokens issued by a [`Deduper`]
@@ -50,18 +50,23 @@ impl Deduper {
     }
 
     pub(crate) fn insert(&mut self, data: Vec<u8>) -> DedupToken {
-        // let token = self.hash(&data);
-        // if self.canonical.contains_key(&token) {
-        //     return DedupToken(token);
-        // }
+        let token = self.hash(&data);
+        if self.canonical.contains_key(&token) {
+            return DedupToken(token);
+        }
 
-        let token = self.canonical.len() as u64;
         self.canonical.insert(token, data);
         DedupToken(token)
     }
 
     pub(crate) fn get(&self, token: DedupToken) -> &[u8] {
         self.canonical.get(&token.0).map(|v| v.as_ref()).expect("by construction, requesting data from the deduper with a dedup token should always work")
+    }
+
+    /// Remove items not in tokens_in_use
+    pub(crate) fn garbage_collect(&mut self, tokens_in_use: HashSet<DedupToken>) {
+        self.canonical
+            .retain(|k, _v| tokens_in_use.contains(&DedupToken(*k)));
     }
 
     pub(crate) fn destructure(
@@ -82,10 +87,18 @@ impl Deduper {
                 "badly constructed data segment: there is a gap"
             );
 
-            let data = self
-                .canonical
-                .remove(&tok.0)
-                .expect("by construction, data should be here");
+            let data = self.canonical.remove(&tok.0).expect(&format!(
+                "failed to get token {}: by construction, data should be here",
+                tok.0
+            ));
+
+            assert_eq!(
+                data.len(),
+                (range.1 - range.0) as usize,
+                "invalid range provided by token map: data has {:#x?} B but the range has {:#x?} B",
+                data.len(),
+                range.1 - range.0
+            );
             data_map.insert(range, data);
             last_issued = range.1;
         }

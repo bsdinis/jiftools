@@ -90,7 +90,7 @@ pub(crate) enum IntermediateIntervalData {
 }
 
 /// Generic Interval Data
-pub trait IntervalData: Default {
+pub trait IntervalData: Default + Clone + From<Vec<u8>> {
     /// Check if it references the zero page
     fn is_zero(&self) -> bool;
 
@@ -100,11 +100,23 @@ pub trait IntervalData: Default {
     /// Check if it has data
     fn is_data(&self) -> bool;
 
+    /// Check if the data is owned
+    fn is_owned(&self) -> bool;
+
+    /// Check if the data is referenced
+    fn is_ref(&self) -> bool;
+
     /// Remove the data, if owned
     fn take_data(&mut self) -> Option<Vec<u8>>;
 
+    /// Dedup data, if owned
+    fn dedup(&mut self, deduper: &mut Deduper);
+
     /// View the data (whether owned or referenced)
     fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]>;
+
+    /// Return the dedup token if it is a reference
+    fn dedup_token(&self) -> Option<DedupToken>;
 }
 
 impl IntervalData for AnonIntervalData {
@@ -117,11 +129,24 @@ impl IntervalData for AnonIntervalData {
     fn is_data(&self) -> bool {
         matches!(self, AnonIntervalData::Owned(_) | AnonIntervalData::Ref(_))
     }
+    fn is_owned(&self) -> bool {
+        matches!(self, AnonIntervalData::Owned(_))
+    }
+    fn is_ref(&self) -> bool {
+        matches!(self, AnonIntervalData::Ref(_))
+    }
     fn take_data(&mut self) -> Option<Vec<u8>> {
         if let AnonIntervalData::Owned(ref mut v) = self {
             Some(v.split_off(0))
         } else {
             None
+        }
+    }
+    fn dedup(&mut self, deduper: &mut Deduper) {
+        if let AnonIntervalData::Owned(ref mut v) = self {
+            let data = v.split_off(0);
+            let token = deduper.insert(data);
+            *self = AnonIntervalData::Ref(token);
         }
     }
     fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
@@ -132,6 +157,19 @@ impl IntervalData for AnonIntervalData {
         } else {
             None
         }
+    }
+    fn dedup_token(&self) -> Option<DedupToken> {
+        if let AnonIntervalData::Ref(token) = self {
+            Some(*token)
+        } else {
+            None
+        }
+    }
+}
+
+impl From<Vec<u8>> for AnonIntervalData {
+    fn from(value: Vec<u8>) -> Self {
+        AnonIntervalData::Owned(value)
     }
 }
 
@@ -145,11 +183,24 @@ impl IntervalData for RefIntervalData {
     fn is_data(&self) -> bool {
         matches!(self, RefIntervalData::Owned(_) | RefIntervalData::Ref(_))
     }
+    fn is_owned(&self) -> bool {
+        matches!(self, RefIntervalData::Owned(_))
+    }
+    fn is_ref(&self) -> bool {
+        matches!(self, RefIntervalData::Ref(_))
+    }
     fn take_data(&mut self) -> Option<Vec<u8>> {
         if let RefIntervalData::Owned(ref mut v) = self {
             Some(v.split_off(0))
         } else {
             None
+        }
+    }
+    fn dedup(&mut self, deduper: &mut Deduper) {
+        if let RefIntervalData::Owned(ref mut v) = self {
+            let data = v.split_off(0);
+            let token = deduper.insert(data);
+            *self = RefIntervalData::Ref(token);
         }
     }
     fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
@@ -160,6 +211,19 @@ impl IntervalData for RefIntervalData {
         } else {
             None
         }
+    }
+    fn dedup_token(&self) -> Option<DedupToken> {
+        if let RefIntervalData::Ref(token) = self {
+            Some(*token)
+        } else {
+            None
+        }
+    }
+}
+
+impl From<Vec<u8>> for RefIntervalData {
+    fn from(value: Vec<u8>) -> Self {
+        RefIntervalData::Owned(value)
     }
 }
 
@@ -173,12 +237,26 @@ impl IntervalData for IntermediateIntervalData {
     fn is_data(&self) -> bool {
         matches!(self, IntermediateIntervalData::Ref(_))
     }
+    fn is_owned(&self) -> bool {
+        false
+    }
+    fn is_ref(&self) -> bool {
+        matches!(self, IntermediateIntervalData::Ref(_))
+    }
     fn take_data(&mut self) -> Option<Vec<u8>> {
         None
     }
+    fn dedup(&mut self, _deduper: &mut Deduper) {}
     fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
         if let IntermediateIntervalData::Ref(token) = self {
             Some(deduper.get(*token))
+        } else {
+            None
+        }
+    }
+    fn dedup_token(&self) -> Option<DedupToken> {
+        if let IntermediateIntervalData::Ref(token) = self {
+            Some(*token)
         } else {
             None
         }
@@ -427,6 +505,12 @@ impl IntermediateInterval {
     }
 }
 
+impl From<Vec<u8>> for IntermediateIntervalData {
+    fn from(_value: Vec<u8>) -> Self {
+        panic!("tried to convert an owned piece of interval data into an IntermediateIntervalData");
+    }
+}
+
 impl RawInterval {
     pub(crate) const fn serialized_size() -> usize {
         3 * std::mem::size_of::<u64>()
@@ -463,6 +547,9 @@ impl RawInterval {
                     *data_offset += data_len;
                     range
                 });
+
+                assert_eq!(data_len, range.1 - range.0, "interval [{:#x?}-{:#x?}] (size = {:#x?}) has a deduplication token ({:?}) with a diferent size: {:#x?}",
+                    inter.start, inter.end, data_len, token, range.1 - range.0);
 
                 RawInterval {
                     start: inter.start,

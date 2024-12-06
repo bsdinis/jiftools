@@ -67,7 +67,7 @@ impl<'a> ITreeView<'a> {
     pub fn iter_private_pages(
         &'a self,
         deduper: &'a Deduper,
-    ) -> Box<dyn Iterator<Item = &[u8]> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         match self {
             ITreeView::Anon { inner } => Box::new(inner.iter_private_pages(deduper)),
             ITreeView::Ref { inner } => Box::new(inner.iter_private_pages(deduper)),
