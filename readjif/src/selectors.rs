@@ -13,6 +13,9 @@ ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
 ord.len                            number of ord chunks
 ord.size                           number of pages in the ordering section
+ord.private_pages                  number of private pages in the ordering section
+ord.shared_pages                   number of shared pages in the ordering section
+ord.zero_pages                     number of shared pages in the ordering section
 
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
@@ -59,6 +62,9 @@ pub(crate) enum OrdCmd {
     Range(IndexRange),
     Len,
     Size,
+    PrivatePages,
+    SharedPages,
+    ZeroPages,
 }
 
 #[derive(Debug, Default)]
@@ -102,6 +108,9 @@ ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
 ord.len                            number of ord chunks
 ord.size                           number of pages in the ordering section
+ord.private_pages                  number of private pages in the ordering section
+ord.shared_pages                   number of shared pages in the ordering section
+ord.zero_pages                     number of shared pages in the ordering section
 
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
@@ -218,12 +227,25 @@ impl TryFrom<Option<String>> for MaterializedCommand {
 
                         MaterializedCommand::Ord(OrdCmd::Range(range))
                     } else {
-                        let options = ["", ".len", ".size"];
+                        let options = [
+                            "",
+                            ".len",
+                            ".size",
+                            ".private_pages",
+                            ".shared_pages",
+                            ".zero_pages",
+                        ];
                         let idx = find_single_option(trimmed, suffix, &options)?;
                         if options[idx] == ".len" {
                             MaterializedCommand::Ord(OrdCmd::Len)
                         } else if options[idx] == ".size" {
                             MaterializedCommand::Ord(OrdCmd::Size)
+                        } else if options[idx] == ".private_pages" {
+                            MaterializedCommand::Ord(OrdCmd::PrivatePages)
+                        } else if options[idx] == ".shared_pages" {
+                            MaterializedCommand::Ord(OrdCmd::SharedPages)
+                        } else if options[idx] == ".zero_pages" {
+                            MaterializedCommand::Ord(OrdCmd::ZeroPages)
                         } else {
                             MaterializedCommand::Ord(OrdCmd::All)
                         }
@@ -350,12 +372,25 @@ impl TryFrom<Option<String>> for RawCommand {
 
                         RawCommand::Ord(OrdCmd::Range(range))
                     } else {
-                        let options = ["", ".len", ".size"];
+                        let options = [
+                            "",
+                            ".len",
+                            ".size",
+                            ".private_pages",
+                            ".shared_pages",
+                            ".zero_pages",
+                        ];
                         let idx = find_single_option(trimmed, suffix, &options)?;
                         if options[idx] == ".len" {
                             RawCommand::Ord(OrdCmd::Len)
                         } else if options[idx] == ".size" {
                             RawCommand::Ord(OrdCmd::Size)
+                        } else if options[idx] == ".private_pages" {
+                            RawCommand::Ord(OrdCmd::PrivatePages)
+                        } else if options[idx] == ".shared_pages" {
+                            RawCommand::Ord(OrdCmd::SharedPages)
+                        } else if options[idx] == ".zero_pages" {
+                            RawCommand::Ord(OrdCmd::ZeroPages)
                         } else {
                             RawCommand::Ord(OrdCmd::All)
                         }

@@ -22,6 +22,9 @@
 //! - `ord[<range>]`: select the ord chunks in the range
 //! - `ord.len`: number of ord chunks (incompatible with the range selector)
 //! - `ord.size`: number of pages in the ordering section (incompatible with the range selector)
+//! - `ord.private_pages`: number of private pages in the ordering section
+//! - `ord.shared_pages`: number of shared pages in the ordering section
+//! - `ord.zero_pages`: number of zero pages in the ordering section
 //! - `pheader`: select all the pheaders
 //! - `pheader[<range>]`: select the pheaders in the range
 //! - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
@@ -52,6 +55,9 @@
 //! - `ord[<range>]`: select the ord chunks in the range
 //! - `ord.len`: number of ord chunks (incompatible with the range selector)
 //! - `ord.size`: number of pages in the ordering section (incompatible with the range selector)
+//! - `ord.private_pages`: number of private pages in the ordering section
+//! - `ord.shared_pages`: number of shared pages in the ordering section
+//! - `ord.zero_pages`: number of zero pages in the ordering section
 //! - `pheader`: select all the pheaders
 //! - `pheader[<range>]`: select the pheaders in the range
 //! - `pheader.len`: number of pheaders (incompatible with the range and field selectors)
@@ -76,6 +82,8 @@ use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
+
+use self::itree::interval::DataSource;
 
 #[derive(Parser)]
 #[command(version)]
@@ -121,6 +129,27 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                 OrdCmd::Size => {
                     println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>())
                 }
+                OrdCmd::PrivatePages => println!(
+                    "private_pages: {}",
+                    ords.iter()
+                        .filter(|o| o.kind() == DataSource::Private)
+                        .map(|o| o.size())
+                        .sum::<u64>()
+                ),
+                OrdCmd::SharedPages => println!(
+                    "shared_pages: {}",
+                    ords.iter()
+                        .filter(|o| o.kind() == DataSource::Shared)
+                        .map(|o| o.size())
+                        .sum::<u64>()
+                ),
+                OrdCmd::ZeroPages => println!(
+                    "zero_pages: {}",
+                    ords.iter()
+                        .filter(|o| o.kind() == DataSource::Zero)
+                        .map(|o| o.size())
+                        .sum::<u64>()
+                ),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:x?}",
                     if start < ords.len() {
@@ -305,8 +334,29 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                 OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
                 OrdCmd::Size => {
-                    println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>())
+                    println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>());
                 }
+                OrdCmd::PrivatePages => println!(
+                    "private_pages: {}",
+                    ords.iter()
+                        .filter(|o| o.kind() == DataSource::Private)
+                        .map(|o| o.size())
+                        .sum::<u64>()
+                ),
+                OrdCmd::SharedPages => println!(
+                    "shared_pages: {}",
+                    ords.iter()
+                        .filter(|o| o.kind() == DataSource::Shared)
+                        .map(|o| o.size())
+                        .sum::<u64>()
+                ),
+                OrdCmd::ZeroPages => println!(
+                    "zero_pages: {}",
+                    ords.iter()
+                        .filter(|o| o.kind() == DataSource::Zero)
+                        .map(|o| o.size())
+                        .sum::<u64>()
+                ),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:#x?}",
                     if start < ords.len() {

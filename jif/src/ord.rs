@@ -49,6 +49,16 @@ impl OrdChunk {
         self.n_pages
     }
 
+    /// Kind of ordering segment
+    pub fn kind(&self) -> DataSource {
+        self.kind
+    }
+
+    /// The address of the first page in the ordering chunk
+    pub fn addr(&self) -> u64 {
+        self.vaddr
+    }
+
     /// The address of the last page in the ordering chunk
     pub fn last_page_addr(&self) -> u64 {
         if self.n_pages > 1 {
