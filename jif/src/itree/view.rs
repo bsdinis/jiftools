@@ -67,7 +67,7 @@ impl<'a> ITreeView<'a> {
     pub fn iter_private_pages(
         &'a self,
         deduper: &'a Deduper,
-    ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+    ) -> Box<dyn Iterator<Item = &[u8]> + 'a> {
         match self {
             ITreeView::Anon { inner } => Box::new(inner.iter_private_pages(deduper)),
             ITreeView::Ref { inner } => Box::new(inner.iter_private_pages(deduper)),
@@ -140,7 +140,7 @@ impl<'a> ITreeView<'a> {
     }
 }
 
-impl std::fmt::Debug for ITreeView<'_> {
+impl<'a> std::fmt::Debug for ITreeView<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ITreeView::Anon { inner } => inner.fmt(f),

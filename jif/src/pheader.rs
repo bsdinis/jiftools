@@ -1,6 +1,7 @@
 //! The pheader representation
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+use std::u64;
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
@@ -13,7 +14,6 @@ use crate::itree::interval::{
 use crate::itree::itree_node::IntermediateITreeNode;
 use crate::itree::{ITree, ITreeView};
 use crate::jif::JifRaw;
-use crate::ord::OrdChunk;
 use crate::utils::{page_align, PAGE_SIZE};
 
 use std::fs::File;
@@ -276,7 +276,7 @@ impl JifPheader {
     }
 
     /// Fragment pheader based on data source
-    pub fn fragment_vmas(
+    pub fn fragment(
         mut self,
         deduper: &Deduper,
         chroot: &Option<std::path::PathBuf>,
@@ -394,35 +394,6 @@ impl JifPheader {
         })
     }
 
-    /// Fracture the pheader intervals based on the ordering chunks that it backs.
-    /// This allows the ordering chunks to be reordered
-    pub fn fracture_by_ord_chunk(
-        &mut self,
-        ord_chunks: &[OrdChunk],
-        deduper: &Deduper,
-    ) -> JifResult<()> {
-        match self {
-            JifPheader::Anonymous { itree, .. } => itree.fracture(ord_chunks, deduper),
-            JifPheader::Reference { itree, .. } => itree.fracture(ord_chunks, deduper),
-        }
-    }
-
-    /// Absorb owned data pieces into the deduper
-    pub fn dedup(&mut self, deduper: &mut Deduper) {
-        match self {
-            JifPheader::Anonymous { itree, .. } => itree.dedup(deduper),
-            JifPheader::Reference { itree, .. } => itree.dedup(deduper),
-        }
-    }
-
-    /// Collect all tokens in use
-    pub fn add_tokens_in_use(&self, tokens_in_use: &mut HashSet<DedupToken>) {
-        match self {
-            JifPheader::Anonymous { itree, .. } => itree.add_tokens_in_use(tokens_in_use),
-            JifPheader::Reference { itree, .. } => itree.add_tokens_in_use(tokens_in_use),
-        }
-    }
-
     /// Rename the file in this pheader if 1) it has a file and 2) it matches the name
     pub fn rename_file(&mut self, old: &str, new: &str) {
         if let JifPheader::Reference { ref_path, .. } = self {
@@ -537,7 +508,7 @@ impl JifPheader {
     pub(crate) fn iter_private_pages<'a>(
         &'a self,
         deduper: &'a Deduper,
-    ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+    ) -> Box<dyn Iterator<Item = &[u8]> + 'a> {
         match self {
             JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
             JifPheader::Reference { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
@@ -547,7 +518,7 @@ impl JifPheader {
     /// Iterate over the private pages in the pheader
     pub(crate) fn iter_shared_regions<'a>(
         &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a str, u64, u64)> + 'a> {
+    ) -> Box<dyn Iterator<Item = (&str, u64, u64)> + 'a> {
         match self {
             JifPheader::Anonymous { .. } => Box::new(std::iter::empty()),
             JifPheader::Reference {
@@ -841,7 +812,7 @@ pub(crate) mod test {
         let prot = pheader.prot();
 
         let deduper = Deduper::default();
-        let pheaders = pheader.fragment_vmas(&deduper, &None).unwrap();
+        let pheaders = pheader.fragment(&deduper, &None).unwrap();
         assert_eq!(pheaders.len(), 16);
 
         for (cnt, pheader) in pheaders.iter().enumerate() {
@@ -888,7 +859,7 @@ pub(crate) mod test {
         let prot = pheader.prot();
 
         let deduper = Deduper::default();
-        let pheaders = pheader.fragment_vmas(&deduper, &None).unwrap();
+        let pheaders = pheader.fragment(&deduper, &None).unwrap();
         assert_eq!(pheaders.len(), 16);
 
         for (cnt, pheader) in pheaders.iter().enumerate() {

@@ -98,6 +98,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut jif = Jif::from_reader(&mut input_file)?;
 
+    let mut reorder = false;
     match args.command {
         None => {}
         Some(Command::Rename { old_path, new_path }) => jif.rename_file(&old_path, &new_path),
@@ -105,7 +106,7 @@ fn main() -> anyhow::Result<()> {
             .build_itrees(chroot_path)
             .context("failed to build ITrees")?,
         Some(Command::Fragment { chroot_path }) => jif
-            .fragment_vmas(chroot_path)
+            .fragment(chroot_path)
             .context("failed to fragment vmas")?,
         Some(Command::AddOrd {
             time_log,
@@ -127,20 +128,18 @@ fn main() -> anyhow::Result<()> {
 
             let tsa_log = dedup_and_sort(tsa_log);
             let ords = construct_ord_chunks(&jif, tsa_log);
+            reorder = setup_prefetch;
 
             jif.add_ordering_info(ords)?;
-            if setup_prefetch {
-                jif.fracture_by_ord_chunk()?;
-            }
             if fragment {
-                jif.fragment_vmas(chroot)?;
+                jif.fragment(chroot)?;
             }
         }
     }
 
     let mut output_file =
         BufWriter::new(File::create(&args.output_file).context("failed to open output JIF")?);
-    let raw = JifRaw::from_materialized(jif);
+    let raw = JifRaw::from_materialized(jif, reorder);
 
     if args.show {
         println!("{:#x?}", raw);

@@ -79,11 +79,6 @@ pub enum JifError {
         virtual_range: (u64, u64),
         error: ITreeError,
     },
-
-    /// Error fracturing an interval
-    Fracture {
-        ord_range: (u64, u64),
-    },
 }
 
 impl std::fmt::Display for JifError {
@@ -135,12 +130,6 @@ impl std::fmt::Display for JifError {
                 "could not find full data segment at [{:#x}; {:#x}) for pheader at [{:#x}; {:#x}), found {:#x} of the requested {:#x} B",
                 data_range.0, data_range.1, virtual_range.0, virtual_range.1, found_len, data_range.1 - data_range.0
             )),
-            JifError::Fracture { ord_range } => {
-  f.write_fmt(format_args!(
-                "failed to break interval referenced in ordering chunk [{}; {}) ",
-                ord_range.0, ord_range.1
-            ))
-            }
             JifError::ITreeNotFound {
                 index,
                 len,
@@ -166,7 +155,6 @@ impl std::error::Error for JifError {
             JifError::BadOrdChunk { ord_chunk_err, .. } => Some(ord_chunk_err),
             JifError::InvalidITree { error, .. } => Some(error),
             JifError::DataSegmentNotFound { .. } => None,
-            JifError::Fracture { .. } => None,
             JifError::ITreeNotFound { .. } => None,
         }
     }

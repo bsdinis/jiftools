@@ -5,6 +5,8 @@
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
 use crate::itree::interval::DataSource;
+use crate::itree::interval::IntermediateInterval;
+use crate::itree::interval::Interval;
 use crate::itree::interval::{AnonIntervalData, LogicalInterval, RawInterval, RefIntervalData};
 use crate::itree::itree_node::{ITreeNode, IntermediateITreeNode, RawITreeNode};
 use crate::itree::ITree;
@@ -15,6 +17,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
 use std::str::from_utf8;
+use std::u64;
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
 pub(crate) const JIF_VERSION: u32 = 2;
@@ -91,7 +94,7 @@ impl Jif {
 
     /// Write the [`Jif`] to a file
     pub fn to_writer<W: Write>(self, w: &mut W) -> std::io::Result<usize> {
-        let raw = JifRaw::from_materialized(self);
+        let raw = JifRaw::from_materialized(self, false);
         raw.to_writer(w)
     }
 
@@ -125,23 +128,186 @@ impl Jif {
             + page_align(ord_size as u64)
     }
 
-    /// Use ordering chunks to break apart intervals so that data pages can be reordered.
-    /// Returns the ordering chunks that were used.
-    pub fn fracture_by_ord_chunk(&mut self) -> JifResult<()> {
-        self.pheaders
-            .iter_mut()
-            .try_for_each(|p| p.fracture_by_ord_chunk(&self.ord_chunks, &self.deduper))?;
-        self.pheaders
-            .iter_mut()
-            .for_each(|p| p.dedup(&mut self.deduper));
+    // Use ordering chunks to break apart intervals so that data pages can be reordered.
+    // Returns the ordering chunks that were used.
+    pub fn fracture_by_ord_chunk(&mut self) {
+        let mut token_map = BTreeMap::new();
+        let mut data_offset = 0;
 
-        let mut tokens_in_use = HashSet::new();
-        self.pheaders
-            .iter()
-            .for_each(|p| p.add_tokens_in_use(&mut tokens_in_use));
+        // Make a list of headers (tuple) with interval lists isntead of itrees.
+        // offsets are assigned to DedupTokens and placed in token_map.
+        let mut hdrs: Vec<_> = self
+            .pheaders
+            .iter_mut()
+            .map(|phdr| match phdr {
+                JifPheader::Anonymous {
+                    vaddr_range,
+                    itree,
+                    prot,
+                } => (
+                    vaddr_range,
+                    prot,
+                    None,
+                    None,
+                    itree
+                        .take()
+                        .into_iter_intervals()
+                        .map(|inter| {
+                            RawInterval::from_intermediate(
+                                &IntermediateInterval::from_materialized_anon(
+                                    inter,
+                                    &mut self.deduper,
+                                ),
+                                &mut token_map,
+                                &mut data_offset,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                JifPheader::Reference {
+                    vaddr_range,
+                    itree,
+                    prot,
+                    ref_path,
+                    ref_offset,
+                } => (
+                    vaddr_range,
+                    prot,
+                    Some(ref_path),
+                    Some(ref_offset),
+                    itree
+                        .take()
+                        .into_iter_intervals()
+                        .map(|inter| {
+                            RawInterval::from_intermediate(
+                                &IntermediateInterval::from_materialized_ref(
+                                    inter,
+                                    &mut self.deduper,
+                                ),
+                                &mut token_map,
+                                &mut data_offset,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            })
+            .collect();
 
-        self.deduper.garbage_collect(tokens_in_use);
-        Ok(())
+        // Collect all data segments.
+        let mut data_segments: BTreeMap<(u64, u64), Vec<u8>> = self.deduper.destructure(token_map);
+
+        // For each ordering chunk, find a corresponding data interval and fragment the interval.
+        for chunk in &self.ord_chunks {
+            let rph = hdrs
+                .iter_mut()
+                .find(|((start, end), _prot, _r1, _r2, _ivs)| {
+                    chunk.vaddr >= *start && chunk.vaddr < *end
+                });
+
+            if rph.is_none() {
+                continue;
+            }
+
+            let (_rng, _prot, _x, _y, ref mut ivs) = rph.unwrap();
+
+            let pos = ivs
+                .iter()
+                .position(|v| v.offset < u64::MAX && v.start <= chunk.vaddr && v.end > chunk.vaddr);
+
+            if pos.is_none() {
+                continue;
+            }
+
+            let chunksz = chunk.n_pages * PAGE_SIZE as u64;
+            let chunk_va_end = chunk.vaddr + chunksz;
+            let ppos = pos.unwrap();
+            let mut v = ivs.remove(ppos);
+
+            let interval_size = v.end - v.start;
+            let left_size = chunk.vaddr - v.start;
+            let right_size = interval_size - left_size - chunksz;
+
+            let chunk_off_start = v.offset + left_size;
+            let chunk_off_end = chunk_off_start + chunksz;
+
+            let found_key = {
+                let keys: Vec<_> = data_segments.keys().cloned().collect();
+                keys.into_iter()
+                    .find(|k| chunk_off_start >= k.0 && chunk_off_end <= k.1)
+                    .unwrap()
+            };
+
+            let data = data_segments.remove(&found_key).unwrap();
+
+            if left_size > 0 {
+                ivs.push(RawInterval::new(v.start, chunk.vaddr, v.offset));
+                data_segments.insert(
+                    (v.offset, v.offset + left_size),
+                    data[..left_size as usize].to_vec(),
+                );
+            }
+
+            if right_size > 0 {
+                ivs.push(RawInterval::new(
+                    chunk_va_end,
+                    v.end,
+                    v.offset + left_size + chunksz,
+                ));
+                assert!(v.offset + left_size + chunksz == chunk_off_end);
+                data_segments.insert(
+                    (chunk_off_end, chunk_off_end + right_size),
+                    data[(left_size + chunksz) as usize..].to_vec(),
+                );
+            }
+            v.offset += left_size;
+            v.start = chunk.vaddr;
+            v.end = v.start + chunksz;
+            ivs.push(v);
+            data_segments.insert(
+                (chunk_off_start, chunk_off_end),
+                data[left_size as usize..(left_size + chunksz) as usize].to_vec(),
+            );
+        }
+
+        // Rebuild pheaders and itrees.
+        let (new_dedup, new_map) = Deduper::from_data_map(data_segments);
+        let mut headers = Vec::new();
+
+        for (vaddr_range, prot, ref_path, ref_offset, ivs) in hdrs {
+            if let Some(rpath) = ref_path {
+                let mut intervals: Vec<_> = ivs
+                    .iter()
+                    .map(|iv| {
+                        Interval::<RefIntervalData>::from_raw_ref(iv, 0, &new_dedup, &new_map)
+                    })
+                    .collect();
+                intervals.sort_by_key(|k| k.start);
+                headers.push(JifPheader::Reference {
+                    vaddr_range: *vaddr_range,
+                    itree: ITree::build(intervals, *vaddr_range).unwrap(),
+                    prot: *prot,
+                    ref_path: rpath.to_string(),
+                    ref_offset: *ref_offset.unwrap(),
+                });
+            } else {
+                let mut intervals: Vec<_> = ivs
+                    .iter()
+                    .map(|iv| {
+                        Interval::<AnonIntervalData>::from_raw_anon(iv, 0, &new_dedup, &new_map)
+                            .unwrap()
+                    })
+                    .collect();
+                intervals.sort_by_key(|k| k.start);
+                headers.push(JifPheader::Anonymous {
+                    vaddr_range: *vaddr_range,
+                    itree: ITree::build(intervals, *vaddr_range).unwrap(),
+                    prot: *prot,
+                });
+            }
+        }
+
+        self.pheaders = headers;
+        self.deduper = new_dedup;
     }
 
     /// Construct the interval trees of all the pheaders
@@ -159,11 +325,11 @@ impl Jif {
     }
 
     /// Fragment vmas based on their source
-    pub fn fragment_vmas(&mut self, chroot: Option<std::path::PathBuf>) -> JifResult<()> {
+    pub fn fragment(&mut self, chroot: Option<std::path::PathBuf>) -> JifResult<()> {
         self.pheaders = self
             .pheaders
             .drain(..)
-            .map(|pheader| pheader.fragment_vmas(&self.deduper, &chroot))
+            .map(|pheader| pheader.fragment(&self.deduper, &chroot))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flat_map(|x| x.into_iter())
@@ -186,7 +352,7 @@ impl Jif {
             .filter(|chunk| !chunk.is_empty())
             .inspect(|chunk| {
                 self.mapping_pheader_idx(chunk.vaddr)
-                    .unwrap_or_else(|| panic!("bad ord chunk {}", chunk.vaddr));
+                    .expect(&format!("bad ord chunk {}", chunk.vaddr));
             })
             .collect();
         Ok(())
@@ -284,7 +450,6 @@ impl JifRaw {
         ord_chunks: &[OrdChunk],
         mut data_offset: u64,
     ) -> (BTreeMap<DedupToken, (u64, u64)>, Vec<RawITreeNode>, u64) {
-        // Vec of (Interval, <has been serialized>)
         let mut intervals = {
             let mut v = itree_nodes
                 .iter()
@@ -295,7 +460,6 @@ impl JifRaw {
             v
         };
 
-        // map from token to range of data offsets in the file
         let mut token_map = BTreeMap::new();
         let mut raw_intervals = BTreeMap::new();
         let mut prefetch_pages = 0;
@@ -346,7 +510,11 @@ impl JifRaw {
     }
 
     /// Construct a raw JIF from a materialized one
-    pub fn from_materialized(mut jif: Jif) -> Self {
+    pub fn from_materialized(mut jif: Jif, prefetch_chunks: bool) -> Self {
+        if prefetch_chunks {
+            jif.fracture_by_ord_chunk()
+        }
+
         // print pheaders in order
         jif.pheaders.sort_by_key(|phdr| phdr.virtual_range().0);
 
@@ -411,7 +579,7 @@ impl JifRaw {
             DataSource::Private => 0,
         });
 
-        let (token_map, itree_nodes, n_prefetch) =
+        let (token_map, itree_nodes, prefetch_pages) =
             Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
         let data_segments = jif.deduper.destructure(token_map);
 
@@ -422,7 +590,7 @@ impl JifRaw {
             ord_chunks: jif.ord_chunks,
             data_offset,
             data_segments,
-            n_prefetch,
+            n_prefetch: if prefetch_chunks { prefetch_pages } else { 0 },
         }
     }
 
