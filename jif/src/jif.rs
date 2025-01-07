@@ -196,6 +196,19 @@ impl Jif {
         // Collect all data segments.
         let mut data_segments: BTreeMap<(u64, u64), Vec<u8>> = self.deduper.destructure(token_map);
 
+        let mut segments: Vec<Vec<u8>> = Vec::new();
+        // Interval => (index in segments vec, start, end)
+        let mut data_segment_refs: BTreeMap<(u64, u64), (usize, usize, usize)> = BTreeMap::new();
+
+        // Iterating over data_segments and populating segments and data_segment_refs
+        for (key, value) in data_segments.into_iter() {
+            // Add reference to data_segment_refs
+            data_segment_refs.insert(key, (segments.len(), 0, value.len()));
+
+            // Move value into segments
+            segments.push(value);
+        }
+
         // For each ordering chunk, find a corresponding data interval and fragment the interval.
         for chunk in &self.ord_chunks {
             let rph = hdrs
@@ -230,20 +243,21 @@ impl Jif {
             let chunk_off_start = v.offset + left_size;
             let chunk_off_end = chunk_off_start + chunksz;
 
-            let found_key = {
-                let keys: Vec<_> = data_segments.keys().cloned().collect();
-                keys.into_iter()
-                    .find(|k| chunk_off_start >= k.0 && chunk_off_end <= k.1)
-                    .unwrap()
-            };
+            let found_key = data_segment_refs
+                .keys()
+                .find(|k| chunk_off_start >= k.0 && chunk_off_end <= k.1)
+                .expect("Valid key not found")
+                .clone();
 
-            let data = data_segments.remove(&found_key).unwrap();
+            let data = data_segment_refs
+                .remove(&found_key)
+                .expect("Data not found");
 
             if left_size > 0 {
                 ivs.push(RawInterval::new(v.start, chunk.vaddr, v.offset));
-                data_segments.insert(
+                data_segment_refs.insert(
                     (v.offset, v.offset + left_size),
-                    data[..left_size as usize].to_vec(),
+                    (data.0, data.1, data.1 + left_size as usize),
                 );
             }
 
@@ -254,23 +268,35 @@ impl Jif {
                     v.offset + left_size + chunksz,
                 ));
                 assert!(v.offset + left_size + chunksz == chunk_off_end);
-                data_segments.insert(
+                data_segment_refs.insert(
                     (chunk_off_end, chunk_off_end + right_size),
-                    data[(left_size + chunksz) as usize..].to_vec(),
+                    (data.0, data.1 + (left_size + chunksz) as usize, data.2),
                 );
             }
+
             v.offset += left_size;
             v.start = chunk.vaddr;
             v.end = v.start + chunksz;
             ivs.push(v);
-            data_segments.insert(
+            data_segment_refs.insert(
                 (chunk_off_start, chunk_off_end),
-                data[left_size as usize..(left_size + chunksz) as usize].to_vec(),
+                (
+                    data.0,
+                    data.1 + left_size as usize,
+                    data.1 + (left_size + chunksz) as usize,
+                ),
             );
         }
 
+        let mut new_data_segments: BTreeMap<(u64, u64), Vec<u8>> = BTreeMap::new();
+
+        // Rematerialize the data segments.
+        for (key, value) in data_segment_refs.into_iter() {
+            new_data_segments.insert(key, segments[value.0 as usize][value.1..value.2].to_vec());
+        }
+
         // Rebuild pheaders and itrees.
-        let (new_dedup, new_map) = Deduper::from_data_map(data_segments);
+        let (new_dedup, new_map) = Deduper::from_data_map(new_data_segments);
         let mut headers = Vec::new();
 
         for (vaddr_range, prot, ref_path, ref_offset, ivs) in hdrs {
