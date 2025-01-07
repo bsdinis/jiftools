@@ -9,10 +9,15 @@ pub fn read_trace<BR: BufRead>(reader: BR) -> Result<Vec<TimestampedAccess>, Tra
     reader
         .lines()
         .enumerate()
-        .map(|(idx, line)| {
-            (line?)
-                .parse()
-                .map_err(|error| TraceReadError::ParseError { line: idx, error })
+        .filter_map(|(idx, line)| {
+            match line {
+                Ok(ref l) if l.trim_start().starts_with("#") => None, // Skip lines starting with #
+                Ok(l) => Some(
+                    l.parse()
+                        .map_err(|error| TraceReadError::ParseError { line: idx, error }),
+                ),
+                Err(e) => Some(Err(TraceReadError::IoError(e))),
+            }
         })
         .collect::<Result<Vec<_>, _>>()
 }
