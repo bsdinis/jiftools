@@ -640,6 +640,11 @@ impl JifRaw {
         &self.itree_nodes
     }
 
+    /// Data offset
+    pub fn data_offset(&self) -> usize {
+        self.data_offset as usize
+    }
+
     /// Report the number of stored bytes
     pub fn data_size(&self) -> usize {
         self.data_segments.values().map(Vec::len).sum()

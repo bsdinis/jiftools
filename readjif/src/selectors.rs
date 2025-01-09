@@ -96,6 +96,7 @@ pub(crate) enum PheaderCmd {
 pub(crate) const RAW_COMMAND_USAGE: &str = "raw command: selection over the raw JIF representation
 
 jif                                select the whole JIF
+jif.metadata                       size of the metadata section (headers + strings + itrees + ord)
 jif.data                           size of the data section
 
 strings                            select the strings in the JIF
@@ -135,6 +136,7 @@ pub(crate) enum RawCommand {
 #[derive(Debug)]
 pub(crate) enum RawJifCmd {
     All,
+    Metadata,
     Data,
 }
 
@@ -343,11 +345,13 @@ impl TryFrom<Option<String>> for RawCommand {
                 if trimmed.starts_with("jif") {
                     let (_prefix, suffix) = trimmed.split_at("jif".len());
 
-                    let options = ["", ".data"];
+                    let options = ["", ".metadata", ".data"];
                     let idx = find_single_option(trimmed, suffix, &options)?;
 
                     if options[idx] == ".data" {
                         RawCommand::Jif(RawJifCmd::Data)
+                    } else if options[idx] == ".metadata" {
+                        RawCommand::Jif(RawJifCmd::Metadata)
                     } else {
                         RawCommand::Jif(RawJifCmd::All)
                     }

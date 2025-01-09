@@ -114,6 +114,7 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
     match cmd {
         RawCommand::Jif(j) => match j {
             RawJifCmd::All => println!("{:#x?}", jif),
+            RawJifCmd::Metadata => println!("metadata section: {:#x} B", jif.data_offset()),
             RawJifCmd::Data => println!("data section: {:#x} B", jif.data_size()),
         },
         RawCommand::Strings => {
