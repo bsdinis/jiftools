@@ -77,6 +77,7 @@ mod utils;
 use crate::selectors::*;
 use crate::utils::IndexRange;
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 
@@ -151,6 +152,8 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                         .map(|o| o.size())
                         .sum::<u64>()
                 ),
+                OrdCmd::Vmas => panic!("cannot get vmas for an ord chunk in a raw JIF"),
+                OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:x?}",
                     if start < ords.len() {
@@ -328,6 +331,9 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                 }
                 println!("}}");
             }
+            JifCmd::Intervals => {
+                println!("{}", jif.n_intervals())
+            }
         },
         MaterializedCommand::Ord(o) => {
             let ords = jif.ord_chunks();
@@ -358,6 +364,15 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                         .map(|o| o.size())
                         .sum::<u64>()
                 ),
+                OrdCmd::Vmas => println!(
+                    "{:x?}",
+                    ords.iter()
+                        .filter_map(|o| jif.ord_vma(o))
+                        .collect::<HashSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                ),
+                OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
                     "{:#x?}",
                     if start < ords.len() {

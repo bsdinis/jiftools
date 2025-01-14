@@ -463,6 +463,19 @@ impl Jif {
             .iter()
             .find_map(|phdr| phdr.resolve_data(addr, &self.deduper))
     }
+
+    /// Get the vmas for an ord chunk
+    pub fn ord_vma(&self, ord: &OrdChunk) -> Option<&JifPheader> {
+        self.mapping_pheader(ord.vaddr)
+    }
+
+    /// Get the total of intervals (including implicit) in the Jif
+    pub fn n_intervals(&self) -> usize {
+        self.pheaders()
+            .iter()
+            .map(|pheader| pheader.n_intervals())
+            .sum()
+    }
 }
 
 impl JifRaw {

@@ -31,7 +31,15 @@ impl<'a> ITreeView<'a> {
         }
     }
 
-    /// Size of the [`ITree`] in number of intervals
+    /// Size of the [`ITree`] in number of explicit intervals
+    pub fn n_explicit_intervals(&self) -> usize {
+        match self {
+            ITreeView::Anon { inner } => inner.n_explicit_intervals(),
+            ITreeView::Ref { inner } => inner.n_explicit_intervals(),
+        }
+    }
+
+    /// Size of the [`ITree`] in number of intervals, counting the implicit intervals too
     pub fn n_intervals(&self) -> usize {
         match self {
             ITreeView::Anon { inner } => inner.n_intervals(),
@@ -67,7 +75,7 @@ impl<'a> ITreeView<'a> {
     pub fn iter_private_pages(
         &'a self,
         deduper: &'a Deduper,
-    ) -> Box<dyn Iterator<Item = &[u8]> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         match self {
             ITreeView::Anon { inner } => Box::new(inner.iter_private_pages(deduper)),
             ITreeView::Ref { inner } => Box::new(inner.iter_private_pages(deduper)),

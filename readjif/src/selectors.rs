@@ -8,6 +8,7 @@ jif.zero_pages                     number of zero pages
 jif.private_pages                  number of private pages in the JIF
 jif.shared_pages                   number of shared pages in the pheader
 jif.pages                          total number of pages
+jif.intervals                      number of total intervals in the jif (counting implicit intervals)
 
 ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
@@ -54,17 +55,22 @@ pub(crate) enum JifCmd {
     All,
     Strings,
     Pages(PageSelector),
+    Intervals,
 }
 
 #[derive(Debug)]
 pub(crate) enum OrdCmd {
     All,
     Range(IndexRange),
+    // Number of intervals
     Len,
+    // Number of bytes
     Size,
     PrivatePages,
     SharedPages,
     ZeroPages,
+    Files,
+    Vmas,
 }
 
 #[derive(Debug, Default)]
@@ -184,6 +190,7 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                         ".private_pages", // 3
                         ".shared_pages",  // 4
                         ".pages",         // 5
+                        ".intervals",     // 6
                     ];
                     let found_options = find_multiple_option(trimmed, suffix, &options)?;
 
@@ -197,6 +204,14 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                         }
 
                         MaterializedCommand::Jif(JifCmd::Strings)
+                    } else if found_options.contains(&6) {
+                        if found_options.len() > 1 {
+                            return Err(anyhow::anyhow!(
+                                "intervals option is incompatible with the other options"
+                            ));
+                        }
+
+                        MaterializedCommand::Jif(JifCmd::Intervals)
                     } else {
                         let mut selector = PageSelector::default();
                         if found_options.contains(&2) {
@@ -233,9 +248,12 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                             "",
                             ".len",
                             ".size",
+                            ".intervals",
                             ".private_pages",
                             ".shared_pages",
                             ".zero_pages",
+                            ".files",
+                            ".vmas",
                         ];
                         let idx = find_single_option(trimmed, suffix, &options)?;
                         if options[idx] == ".len" {
@@ -248,6 +266,10 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                             MaterializedCommand::Ord(OrdCmd::SharedPages)
                         } else if options[idx] == ".zero_pages" {
                             MaterializedCommand::Ord(OrdCmd::ZeroPages)
+                        } else if options[idx] == ".files" {
+                            MaterializedCommand::Ord(OrdCmd::Files)
+                        } else if options[idx] == ".vmas" {
+                            MaterializedCommand::Ord(OrdCmd::Vmas)
                         } else {
                             MaterializedCommand::Ord(OrdCmd::All)
                         }

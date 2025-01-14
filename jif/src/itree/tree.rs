@@ -182,8 +182,53 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
         self.nodes.len()
     }
 
-    /// Number of intervals in the [`ITree`]
     pub fn n_intervals(&self) -> usize {
+        let Some(first_explicit_addr) = self.in_order_intervals().next().map(|x| x.start) else {
+            // empty itree
+            return if self.virtual_range.0 == self.virtual_range.1 {
+                0
+            } else {
+                1
+            };
+        };
+
+        let Some(last_explicit_addr) = self.in_order_intervals().last().map(|x| x.end) else {
+            // empty itree
+            return if self.virtual_range.0 == self.virtual_range.1 {
+                0
+            } else {
+                1
+            };
+        };
+
+        let in_tree_intervals = self
+            .in_order_intervals()
+            .map(|x| (x.start, x.end))
+            .zip(
+                self.in_order_intervals()
+                    .map(|x| (x.start, x.end))
+                    .skip(1)
+                    // dummy interval to make sure the last interval counts
+                    .chain(std::iter::once((last_explicit_addr, last_explicit_addr))),
+            )
+            .map(|(i1, i2)| if i1.1 == i2.0 { 1 } else { 2 })
+            .sum::<usize>();
+
+        in_tree_intervals
+            + if first_explicit_addr == self.virtual_range().0 {
+                0
+            } else {
+                1
+            }
+            + if last_explicit_addr == self.virtual_range().1 {
+                0
+            } else {
+                1
+            }
+    }
+
+    /// Number of intervals in the [`ITree`]
+    pub fn n_explicit_intervals(&self) -> usize {
         self.nodes.iter().map(|n| n.n_intervals()).sum()
     }
 
@@ -233,7 +278,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     pub fn iter_private_pages<'a>(
         &'a self,
         deduper: &'a Deduper,
-    ) -> impl Iterator<Item = &[u8]> + 'a {
+    ) -> impl Iterator<Item = &'a [u8]> + 'a {
         self.in_order_intervals()
             .filter_map(|i| i.data.get_data(deduper).map(|d| d.chunks_exact(PAGE_SIZE)))
             .flatten()
@@ -493,7 +538,7 @@ pub(crate) mod test {
     fn test_empty<Data: IntervalData>() {
         let tree: ITree<RefIntervalData> = gen_empty();
         assert_eq!(tree.n_nodes(), 0);
-        assert_eq!(tree.n_intervals(), 0);
+        assert_eq!(tree.n_explicit_intervals(), 0);
         assert_eq!(tree.n_data_intervals(), 0);
         assert_eq!(tree.in_order_intervals().count(), 0);
         assert_eq!(tree.zero_byte_size(), 0);

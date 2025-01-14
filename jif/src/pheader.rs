@@ -1,6 +1,7 @@
 //! The pheader representation
 
 use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::u64;
 
 use crate::deduper::{DedupToken, Deduper};
@@ -508,7 +509,7 @@ impl JifPheader {
     pub(crate) fn iter_private_pages<'a>(
         &'a self,
         deduper: &'a Deduper,
-    ) -> Box<dyn Iterator<Item = &[u8]> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         match self {
             JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
             JifPheader::Reference { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
@@ -518,7 +519,7 @@ impl JifPheader {
     /// Iterate over the private pages in the pheader
     pub(crate) fn iter_shared_regions<'a>(
         &'a self,
-    ) -> Box<dyn Iterator<Item = (&str, u64, u64)> + 'a> {
+    ) -> Box<dyn Iterator<Item = (&'a str, u64, u64)> + 'a> {
         match self {
             JifPheader::Anonymous { .. } => Box::new(std::iter::empty()),
             JifPheader::Reference {
@@ -535,6 +536,11 @@ impl JifPheader {
                 )
             })),
         }
+    }
+
+    /// Number of intervals in the pheader (including implicit)
+    pub(crate) fn n_intervals(&self) -> usize {
+        self.itree().n_intervals()
     }
 }
 
@@ -642,6 +648,50 @@ impl JifRawPheader {
     /// The protections concerning this vma
     pub fn prot(&self) -> u8 {
         self.prot
+    }
+}
+
+impl PartialEq for JifPheader {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                JifPheader::Anonymous {
+                    vaddr_range: va1,
+                    prot: prot1,
+                    ..
+                },
+                JifPheader::Anonymous {
+                    vaddr_range: va2,
+                    prot: prot2,
+                    ..
+                },
+            ) => va1.eq(va2) && prot1.eq(prot2),
+            (
+                JifPheader::Reference {
+                    vaddr_range: va1,
+                    prot: prot1,
+                    ref_path: path1,
+                    ref_offset: offset1,
+                    ..
+                },
+                JifPheader::Reference {
+                    vaddr_range: va2,
+                    prot: prot2,
+                    ref_path: path2,
+                    ref_offset: offset2,
+                    ..
+                },
+            ) => va1.eq(va2) && prot1.eq(prot2) && offset1.eq(offset2) && path1.eq(path2),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for JifPheader {}
+
+impl Hash for JifPheader {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.virtual_range().hash(state);
     }
 }
 
@@ -819,7 +869,7 @@ pub(crate) mod test {
             let cnt = cnt % 2;
             assert_eq!(prot, pheader.prot());
             match pheader {
-                JifPheader::Anonymous { itree, .. } if itree.n_intervals() > 0 => {
+                JifPheader::Anonymous { itree, .. } if itree.n_explicit_intervals() > 0 => {
                     assert_eq!(cnt, 0)
                 }
                 JifPheader::Anonymous { .. } => assert_eq!(cnt, 1),
@@ -866,12 +916,12 @@ pub(crate) mod test {
             let cnt = cnt % 3;
             assert_eq!(prot, pheader.prot());
             match pheader {
-                JifPheader::Anonymous { itree, .. } if itree.n_intervals() > 0 => {
+                JifPheader::Anonymous { itree, .. } if itree.n_explicit_intervals() > 0 => {
                     assert_eq!(cnt, 0)
                 }
                 JifPheader::Anonymous { .. } => assert_eq!(cnt, 1),
                 JifPheader::Reference { itree, .. } => {
-                    assert_eq!(itree.n_intervals(), 0);
+                    assert_eq!(itree.n_explicit_intervals(), 0);
                     assert_eq!(cnt, 2);
                 }
             }
