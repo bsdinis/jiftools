@@ -17,6 +17,7 @@ ord.size                           number of pages in the ordering section
 ord.private_pages                  number of private pages in the ordering section
 ord.shared_pages                   number of shared pages in the ordering section
 ord.zero_pages                     number of shared pages in the ordering section
+ord.vmas                           number of vmas in the ordering section
 
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
