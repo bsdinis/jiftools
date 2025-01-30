@@ -1,6 +1,6 @@
 //! The pheader representation
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::hash::Hash;
 use std::u64;
 
@@ -15,6 +15,7 @@ use crate::itree::interval::{
 use crate::itree::itree_node::IntermediateITreeNode;
 use crate::itree::{ITree, ITreeView};
 use crate::jif::JifRaw;
+use crate::ord::OrdChunk;
 use crate::utils::{page_align, PAGE_SIZE};
 
 use std::fs::File;
@@ -278,7 +279,7 @@ impl JifPheader {
     }
 
     /// Fragment pheader based on data source
-    pub fn fragment(
+    pub fn fragment_vmas(
         mut self,
         deduper: &Deduper,
         chroot: &Option<std::path::PathBuf>,
@@ -394,6 +395,35 @@ impl JifPheader {
                 })
                 .collect(),
         })
+    }
+
+    /// Fracture the pheader intervals based on the ordering chunks that it backs.
+    /// This allows the ordering chunks to be reordered
+    pub fn fracture_by_ord_chunk(
+        &mut self,
+        ord_chunks: &[OrdChunk],
+        deduper: &Deduper,
+    ) -> JifResult<()> {
+        match self {
+            JifPheader::Anonymous { itree, .. } => itree.fracture(ord_chunks, deduper),
+            JifPheader::Reference { itree, .. } => itree.fracture(ord_chunks, deduper),
+        }
+    }
+
+    /// Absorb owned data pieces into the deduper
+    pub fn dedup(&mut self, deduper: &mut Deduper) {
+        match self {
+            JifPheader::Anonymous { itree, .. } => itree.dedup(deduper),
+            JifPheader::Reference { itree, .. } => itree.dedup(deduper),
+        }
+    }
+
+    /// Collect all tokens in use
+    pub fn add_tokens_in_use(&self, tokens_in_use: &mut HashSet<DedupToken>) {
+        match self {
+            JifPheader::Anonymous { itree, .. } => itree.add_tokens_in_use(tokens_in_use),
+            JifPheader::Reference { itree, .. } => itree.add_tokens_in_use(tokens_in_use),
+        }
     }
 
     /// Rename the file in this pheader if 1) it has a file and 2) it matches the name
@@ -863,7 +893,7 @@ pub(crate) mod test {
         let prot = pheader.prot();
 
         let deduper = Deduper::default();
-        let pheaders = pheader.fragment(&deduper, &None).unwrap();
+        let pheaders = pheader.fragment_vmas(&deduper, &None).unwrap();
         assert_eq!(pheaders.len(), 16);
 
         for (cnt, pheader) in pheaders.iter().enumerate() {
@@ -910,7 +940,7 @@ pub(crate) mod test {
         let prot = pheader.prot();
 
         let deduper = Deduper::default();
-        let pheaders = pheader.fragment(&deduper, &None).unwrap();
+        let pheaders = pheader.fragment_vmas(&deduper, &None).unwrap();
         assert_eq!(pheaders.len(), 16);
 
         for (cnt, pheader) in pheaders.iter().enumerate() {
