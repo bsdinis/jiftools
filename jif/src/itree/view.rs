@@ -148,7 +148,7 @@ impl<'a> ITreeView<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for ITreeView<'a> {
+impl std::fmt::Debug for ITreeView<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ITreeView::Anon { inner } => inner.fmt(f),
