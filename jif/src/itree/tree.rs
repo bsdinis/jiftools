@@ -89,10 +89,31 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             });
         }
 
-        Ok(ITree {
+        let itree = ITree {
             nodes,
             virtual_range,
-        })
+        };
+
+        let expected_n_nodes = Self::n_itree_nodes_from_intervals(itree.n_intervals());
+        if expected_n_nodes < itree.n_nodes() {
+            return Err(ITreeError::NotCompact {
+                expected_n_nodes,
+                n_nodes: itree.n_nodes(),
+            });
+        }
+
+        if let Some((i1, i2)) = itree
+            .in_order_intervals()
+            .zip(itree.in_order_intervals().skip(1))
+            .find(|(i1, i2)| i1.end > i2.start)
+        {
+            return Err(ITreeError::NotInOrder {
+                interval_1: (i1.start, i1.end),
+                interval_2: (i2.start, i2.end),
+            });
+        }
+
+        Ok(itree)
     }
 
     pub fn single(virtual_range: (u64, u64), data: Data) -> Self {
@@ -468,7 +489,7 @@ pub(crate) mod test {
         VADDR_END,
     ];
 
-    pub(crate) fn gen_empty<Data: IntervalData + Default>() -> ITree<Data> {
+    pub(crate) fn gen_empty<Data: IntervalData + Default + std::fmt::Debug>() -> ITree<Data> {
         ITree::new(Vec::new(), (VADDR_BEGIN, VADDR_END)).unwrap()
     }
 

@@ -194,7 +194,7 @@ impl Jif {
             .collect();
 
         // Collect all data segments.
-        let mut data_segments: BTreeMap<(u64, u64), Vec<u8>> = self.deduper.destructure(token_map);
+        let data_segments: BTreeMap<(u64, u64), Vec<u8>> = self.deduper.destructure(token_map);
 
         let mut segments: Vec<Vec<u8>> = Vec::new();
         // Interval => (index in segments vec, start, end)
