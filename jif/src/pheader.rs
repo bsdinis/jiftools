@@ -210,6 +210,7 @@ impl JifPheader {
             create_itree_from_diff(&base, overlay, virtual_range.0, &mut intervals);
             ITree::build(intervals, virtual_range)
         }
+
         fn build_ref_from_zero(
             itree: &mut ITree<RefIntervalData>,
             virtual_range: (u64, u64),

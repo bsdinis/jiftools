@@ -22,6 +22,18 @@ pub enum ITreeError {
 
     /// Interval out of the virtual address range
     IntervalOutOfRange { interval: (u64, u64) },
+
+    /// ITree is not compact
+    NotCompact {
+        expected_n_nodes: usize,
+        n_nodes: usize,
+    },
+
+    /// ITree is not in order
+    NotInOrder {
+        interval_1: (u64, u64),
+        interval_2: (u64, u64),
+    },
 }
 
 impl std::fmt::Display for ITreeError {
@@ -44,7 +56,15 @@ impl std::fmt::Display for ITreeError {
                 "intervals are intersecting: [{:#x}; {:#x}) and [{:#x}; {:#x})",
                 interval_1.0, interval_1.1, interval_2.0, interval_2.1
             )),
-            ITreeError::IntervalOutOfRange { interval } => f.write_fmt(format_args!("interval [{:#x}; {:#x}) is out of range", interval.0, interval.1))
+            ITreeError::IntervalOutOfRange { interval } => f.write_fmt(format_args!("interval [{:#x}; {:#x}) is out of range", interval.0, interval.1)),
+            ITreeError::NotCompact { expected_n_nodes, n_nodes }  => f.write_fmt(format_args!("interval tree is not compact: expected {expected_n_nodes}, found {n_nodes}")),
+            ITreeError::NotInOrder {
+                interval_1,
+                interval_2,
+            } => f.write_fmt(format_args!(
+                "intervals are not in order: [{:#x}; {:#x}) and [{:#x}; {:#x})",
+                interval_1.0, interval_1.1, interval_2.0, interval_2.1
+            )),
         }
     }
 }
