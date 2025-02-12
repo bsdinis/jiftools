@@ -50,12 +50,11 @@ impl Deduper {
     }
 
     pub(crate) fn insert(&mut self, data: Vec<u8>) -> DedupToken {
-        // let token = self.hash(&data);
-        // if self.canonical.contains_key(&token) {
-        //     return DedupToken(token);
-        // }
+        let token = self.hash(&data);
+        if self.canonical.contains_key(&token) {
+            return DedupToken(token);
+        }
 
-        let token = self.canonical.len() as u64;
         self.canonical.insert(token, data);
         DedupToken(token)
     }
