@@ -178,9 +178,9 @@ impl JifPheader {
             ref_offset: u64,
             chroot: &Option<std::path::PathBuf>,
         ) -> ITreeResult<ITree<RefIntervalData>> {
-            let mut file = {
+            let full_path = {
                 let ref_path = PathBuf::from(refs);
-                let full_path = match chroot {
+                match chroot {
                     None => ref_path,
                     Some(cpath) => {
                         let mut cp = cpath.clone();
@@ -191,15 +191,22 @@ impl JifPheader {
                         }
                         cp
                     }
-                };
-                let mut f = BufReader::new(File::open(&full_path)?);
-                f.seek(SeekFrom::Start(ref_offset))?;
+                }
+            };
+            let convert_io_error = |error| ITreeError::IoError {
+                path: full_path.clone(),
+                error,
+            };
+            let mut file = {
+                let mut f = BufReader::new(File::open(&full_path).map_err(convert_io_error)?);
+                f.seek(SeekFrom::Start(ref_offset))
+                    .map_err(convert_io_error)?;
                 f
             };
 
             let base = {
                 let mut buf = Vec::new();
-                file.read_to_end(&mut buf)?;
+                file.read_to_end(&mut buf).map_err(convert_io_error)?;
 
                 let delta_to_page = page_align(buf.len() as u64) as usize - buf.len();
                 if delta_to_page > 0 {

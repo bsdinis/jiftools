@@ -1,10 +1,15 @@
+use std::path::PathBuf;
+
 pub type ITreeResult<T> = core::result::Result<T, ITreeError>;
 
 /// ITree error types
 #[derive(Debug)]
 pub enum ITreeError {
     /// An error with IO ocurred
-    IoError(std::io::Error),
+    IoError {
+        path: PathBuf,
+        error: std::io::Error,
+    },
 
     /// Non reference pheaders need to be fully mapped by their zero and private sections
     RangeNotCovered {
@@ -40,7 +45,7 @@ impl std::fmt::Display for ITreeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("itree error: ")?;
         match self {
-            ITreeError::IoError(io) => f.write_fmt(format_args!("{}", io)),
+            ITreeError::IoError{ path, error} => f.write_fmt(format_args!("failed to operate on {}: {error}", path.display())),
             ITreeError::RangeNotCovered {
                 expected_coverage,
                 covered_by_zero,
@@ -72,14 +77,8 @@ impl std::fmt::Display for ITreeError {
 impl std::error::Error for ITreeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            ITreeError::IoError(io) => Some(io),
+            ITreeError::IoError { error, .. } => Some(error),
             _ => None,
         }
-    }
-}
-
-impl From<std::io::Error> for ITreeError {
-    fn from(value: std::io::Error) -> Self {
-        ITreeError::IoError(value)
     }
 }
