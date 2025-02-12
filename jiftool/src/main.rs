@@ -13,7 +13,7 @@ use jif::*;
 use tracer_format::{dedup_and_sort_by_addr, read_trace};
 
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
@@ -40,11 +40,10 @@ struct Cli {
     ///
     /// In the absence of a command it will simply
     /// remove duplicate strings and other isomorphic compression techniques
-    #[command(subcommand)]
-    command: Option<Command>,
+    command: Vec<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Parser)]
 enum Command {
     /// Rename a referenced file in the JIF
     Rename {
@@ -92,36 +91,39 @@ fn main() -> anyhow::Result<()> {
 
     let mut jif = Jif::from_reader(&mut input_file)?;
 
-    match args.command {
-        None => {}
-        Some(Command::Rename { old_path, new_path }) => jif.rename_file(&old_path, &new_path),
-        Some(Command::BuildItrees { chroot_path }) => jif
-            .build_itrees(chroot_path)
-            .context("failed to build ITrees")?,
-        Some(Command::FragmentVmas { chroot_path }) => jif
-            .fragment_vmas(chroot_path)
-            .context("failed to fragment vmas")?,
-        Some(Command::SetupPrefetch) => jif
-            .setup_prefetch()
-            .context("failed to setup prefetch section")?,
-        Some(Command::TagVmas) => jif.tag_vmas(),
-        Some(Command::AddOrd { time_log }) => {
-            let tsa_log = match time_log {
-                Some(fname) => {
-                    let file =
-                        BufReader::new(File::open(fname).context("failed to open ord list")?);
-                    read_trace(file).context("failed to read trace")?
-                }
-                None => {
-                    let stdin = std::io::stdin();
-                    read_trace(stdin.lock()).context("failed to read trace")?
-                }
-            };
+    for command in args.command {
+        let args = std::iter::once("").chain(command.split_whitespace());
+        let command = Command::parse_from(args);
+        match command {
+            Command::Rename { old_path, new_path } => jif.rename_file(&old_path, &new_path),
+            Command::BuildItrees { chroot_path } => jif
+                .build_itrees(chroot_path)
+                .context("failed to build ITrees")?,
+            Command::FragmentVmas { chroot_path } => jif
+                .fragment_vmas(chroot_path)
+                .context("failed to fragment vmas")?,
+            Command::SetupPrefetch => jif
+                .setup_prefetch()
+                .context("failed to setup prefetch section")?,
+            Command::TagVmas => jif.tag_vmas(),
+            Command::AddOrd { time_log } => {
+                let tsa_log = match time_log {
+                    Some(fname) => {
+                        let file =
+                            BufReader::new(File::open(fname).context("failed to open ord list")?);
+                        read_trace(file).context("failed to read trace")?
+                    }
+                    None => {
+                        let stdin = std::io::stdin();
+                        read_trace(stdin.lock()).context("failed to read trace")?
+                    }
+                };
 
-            let tsa_log = dedup_and_sort_by_addr(tsa_log);
-            let ords = construct_ord_chunks(&jif, tsa_log);
+                let tsa_log = dedup_and_sort_by_addr(tsa_log);
+                let ords = construct_ord_chunks(&jif, tsa_log);
 
-            jif.add_ordering_info(ords)?;
+                jif.add_ordering_info(ords)?;
+            }
         }
     }
 
