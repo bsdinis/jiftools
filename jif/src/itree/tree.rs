@@ -148,25 +148,27 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     /// Fracture data intervals in ITree by the ordering section boundaries
     /// to ensure they can be reordered in the physical representation
     /// (to be more efficiently placed in the file)
-    pub fn fracture(&mut self, ord_chunks: &[OrdChunk], deduper: &mut Deduper) -> JifResult<()> {
+    pub fn fracture(
+        &mut self,
+        ord_chunks: &[OrdChunk],
+        deduper: &mut Deduper,
+        outside_tokens: &HashSet<DedupToken>,
+    ) -> JifResult<()> {
         fn fracture_interval<Data: IntervalData>(
             ival: &mut Interval<Data>,
             chunk: &OrdChunk,
             deduper: &mut Deduper,
             intervals: &mut Vec<Interval<Data>>,
             intervals_to_recheck: &mut Vec<Interval<Data>>,
+            outside_tokens: &HashSet<DedupToken>,
         ) {
+            let mut dropped_tokens = HashSet::new();
             let mut ival_data = if ival.data.is_owned() {
                 ival.data.take_data().unwrap()
             } else {
                 assert!(ival.data.is_ref());
-                let v = ival.data.get_data(deduper).unwrap().to_vec();
-                deduper.decrement_count(
-                    ival.data
-                        .dedup_token()
-                        .expect("this is a deduped interval, better have an interval"),
-                );
-                v
+                dropped_tokens.insert(ival.data.dedup_token().unwrap());
+                ival.data.get_data(deduper).unwrap().to_vec()
             };
 
             // breaking an interval where the ordering section starts in the middle
@@ -217,6 +219,8 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                     data: Data::from_dedup_token(token),
                 });
             }
+
+            deduper.garbage_collect(dropped_tokens.difference(outside_tokens));
         }
 
         let virt_range = self.virtual_range();
@@ -288,6 +292,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                     deduper,
                     &mut intervals,
                     &mut intervals_to_recheck,
+                    outside_tokens,
                 );
             }
 
@@ -316,7 +321,14 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                     idx_to_move_to_ivals = Some(idx);
                 } else {
                     idx_to_remove = Some(idx);
-                    fracture_interval(ival, chunk, deduper, &mut intervals, &mut new_intervals);
+                    fracture_interval(
+                        ival,
+                        chunk,
+                        deduper,
+                        &mut intervals,
+                        &mut new_intervals,
+                        outside_tokens,
+                    );
                 }
             } else {
                 panic!(

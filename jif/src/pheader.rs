@@ -410,10 +410,15 @@ impl JifPheader {
         &mut self,
         ord_chunks: &[OrdChunk],
         deduper: &mut Deduper,
+        outside_tokens: &HashSet<DedupToken>,
     ) -> JifResult<()> {
         match self {
-            JifPheader::Anonymous { itree, .. } => itree.fracture(ord_chunks, deduper),
-            JifPheader::Reference { itree, .. } => itree.fracture(ord_chunks, deduper),
+            JifPheader::Anonymous { itree, .. } => {
+                itree.fracture(ord_chunks, deduper, outside_tokens)
+            }
+            JifPheader::Reference { itree, .. } => {
+                itree.fracture(ord_chunks, deduper, outside_tokens)
+            }
         }
     }
 

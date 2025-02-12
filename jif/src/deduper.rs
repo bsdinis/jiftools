@@ -17,7 +17,7 @@ pub struct DedupToken(u64);
 #[derive(Default)]
 pub struct Deduper {
     /// map from data hash to the owned data
-    canonical: HashMap<u64, (Vec<u8>, usize)>,
+    canonical: HashMap<u64, Vec<u8>>,
 
     /// hash builder
     hash_builder: RandomState,
@@ -49,32 +49,16 @@ impl Deduper {
         self.hash_builder.hash_one(data)
     }
 
-    pub(crate) fn insert(&mut self, data: Vec<u8>) -> DedupToken {
+    pub(crate) fn insert(&mut self, mut data: Vec<u8>) -> DedupToken {
+        data.shrink_to_fit();
         let token = self.hash(&data);
-        if let Some((_data, ctr)) = self.canonical.get_mut(&token) {
-            *ctr += 1;
-            return DedupToken(token);
-        }
+        self.canonical.entry(token).or_insert(data);
 
-        self.canonical.insert(token, (data, 1));
         DedupToken(token)
     }
 
-    pub(crate) fn decrement_count(&mut self, token: DedupToken) {
-        let remove = if let Some((_data, ctr)) = self.canonical.get_mut(&token.0) {
-            *ctr += 1;
-            *ctr == 0
-        } else {
-            false
-        };
-
-        if remove {
-            self.canonical.remove(&token.0);
-        }
-    }
-
     pub(crate) fn get(&self, token: DedupToken) -> &[u8] {
-        self.canonical.get(&token.0).map(|(v, _ctr)| v.as_ref()).expect("by construction, requesting data from the deduper with a dedup token should always work")
+        self.canonical.get(&token.0).map(|v| v.as_ref()).expect("by construction, requesting data from the deduper with a dedup token should always work")
     }
 
     pub(crate) fn destructure(
@@ -95,7 +79,7 @@ impl Deduper {
                 "badly constructed data segment: there is a gap"
             );
 
-            let (data, _cnt) = self.canonical.remove(&tok.0).unwrap_or_else(|| {
+            let data = self.canonical.remove(&tok.0).unwrap_or_else(|| {
                 panic!(
                     "failed to get token {}: by construction, data should be here",
                     tok.0
@@ -114,6 +98,15 @@ impl Deduper {
         }
 
         data_map
+    }
+
+    pub(crate) fn garbage_collect<'a>(
+        &mut self,
+        dropped_tokens: impl Iterator<Item = &'a DedupToken>,
+    ) {
+        for token in dropped_tokens {
+            self.canonical.remove(&token.0);
+        }
     }
 }
 

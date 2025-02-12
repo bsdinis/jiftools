@@ -3,8 +3,8 @@
 //! Includes both the raw and materialized variants
 
 use crate::deduper::{DedupToken, Deduper};
-use crate::itree::interval::DataSource;
 use crate::itree::interval::{AnonIntervalData, LogicalInterval, RawInterval, RefIntervalData};
+use crate::itree::interval::{DataSource, IntervalData};
 use crate::itree::itree_node::{ITreeNode, IntermediateITreeNode, RawITreeNode};
 use crate::itree::ITree;
 use crate::ord::OrdChunk;
@@ -146,9 +146,34 @@ impl Jif {
     pub fn setup_prefetch(&mut self) -> JifResult<()> {
         self.prefetch = true;
 
-        self.pheaders
-            .iter_mut()
-            .try_for_each(|p| p.fracture_by_ord_chunk(&self.ord_chunks, &mut self.deduper))?;
+        let n_pheaders = self.pheaders.len();
+        for idx in 0..n_pheaders {
+            let mut outside_tokens = HashSet::new();
+            self.pheaders
+                .iter()
+                .enumerate()
+                .filter(|(oidx, _p)| *oidx != idx)
+                .for_each(|(_idx, p)| match p {
+                    JifPheader::Anonymous { itree, .. } => itree
+                        .in_order_intervals()
+                        .flat_map(|i| i.data.dedup_token())
+                        .for_each(|x| {
+                            outside_tokens.insert(x);
+                        }),
+                    JifPheader::Reference { itree, .. } => itree
+                        .in_order_intervals()
+                        .flat_map(|i| i.data.dedup_token())
+                        .for_each(|x| {
+                            outside_tokens.insert(x);
+                        }),
+                });
+            let pheader = self
+                .pheaders
+                .get_mut(idx)
+                .expect("this pheader should exist");
+            pheader.fracture_by_ord_chunk(&self.ord_chunks, &mut self.deduper, &outside_tokens)?;
+        }
+
         Ok(())
     }
 
