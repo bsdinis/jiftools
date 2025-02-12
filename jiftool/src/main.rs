@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
             .fragment_vmas(chroot_path)
             .context("failed to fragment vmas")?,
         Some(Command::SetupPrefetch) => jif
-            .fracture_by_ord_chunk()
+            .setup_prefetch()
             .context("failed to setup prefetch section")?,
         Some(Command::AddOrd { time_log }) => {
             let tsa_log = match time_log {

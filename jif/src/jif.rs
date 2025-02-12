@@ -141,7 +141,9 @@ impl Jif {
         Ok(())
     }
 
-    pub fn fracture_by_ord_chunk(&mut self) -> JifResult<()> {
+    /// Setup the prefetching section
+    /// This includes fracturing ITree intervals by ord chunks
+    pub fn setup_prefetch(&mut self) -> JifResult<()> {
         self.prefetch = true;
         self.pheaders
             .iter_mut()
