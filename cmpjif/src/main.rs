@@ -92,7 +92,11 @@ fn sha256_page(page: &[u8]) -> Sha256Hash {
 
 /// Build a set of hashes of the private pages
 fn build_private_pages_hash_set(jif: &Jif) -> HashSet<Sha256Hash> {
-    jif.iter_private_pages().map(sha256_page).collect()
+    let mut set = HashSet::new();
+    jif.for_each_private_page(|page| {
+        set.insert(sha256_page(page));
+    });
+    set
 }
 
 /// Build a set of hashes of pages
@@ -137,8 +141,9 @@ fn build_ordering_digest(jif: &Jif, include_private: bool, include_shared: bool)
                 }
                 DataSource::Private => {
                     if include_private {
-                        let page_data = jif
-                            .resolve_data(page)
+                        let borrow = jif.resolve_data(page);
+                        let page_data = borrow
+                            .get()
                             .expect("if it resolves and is private it must have data");
 
                         assert_eq!(page_data.len(), 0x1000, "page is not page sized");

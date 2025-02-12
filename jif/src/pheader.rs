@@ -20,6 +20,7 @@ use crate::utils::{page_align, PAGE_SIZE};
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// VMA protection bits
 #[repr(u8)]
@@ -96,7 +97,7 @@ impl JifPheader {
     pub(crate) fn from_raw(
         jif: &JifRaw,
         raw: &JifRawPheader,
-        deduper: &Deduper,
+        deduper: Arc<RwLock<Deduper>>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> JifResult<Self> {
         let vaddr_range = (raw.vbegin, raw.vend);
@@ -141,13 +142,13 @@ impl JifPheader {
     /// Build an itree for a particular pheader
     pub fn build_itree(
         &mut self,
-        deduper: &Deduper,
+        deduper: &RwLockReadGuard<'_, Deduper>,
         chroot: &Option<std::path::PathBuf>,
     ) -> ITreeResult<()> {
         fn build_anon_from_zero(
             itree: &mut ITree<AnonIntervalData>,
             virtual_range: (u64, u64),
-            deduper: &Deduper,
+            deduper: &RwLockReadGuard<'_, Deduper>,
         ) -> ITreeResult<()> {
             let orig_itree = itree.take();
             let mut intervals = vec![];
@@ -222,7 +223,7 @@ impl JifPheader {
         fn build_ref_from_zero(
             itree: &mut ITree<RefIntervalData>,
             virtual_range: (u64, u64),
-            deduper: &Deduper,
+            deduper: &RwLockReadGuard<'_, Deduper>,
         ) -> ITreeResult<()> {
             let orig_itree = itree.take();
             let mut intervals = orig_itree
@@ -288,7 +289,7 @@ impl JifPheader {
     /// Fragment pheader based on data source
     pub fn fragment_vmas(
         mut self,
-        deduper: &Deduper,
+        deduper: &RwLockReadGuard<'_, Deduper>,
         chroot: &Option<std::path::PathBuf>,
     ) -> JifResult<Vec<JifPheader>> {
         self.build_itree(deduper, chroot)
@@ -409,21 +410,16 @@ impl JifPheader {
     pub fn fracture_by_ord_chunk(
         &mut self,
         ord_chunks: &[OrdChunk],
-        deduper: &mut Deduper,
-        outside_tokens: &HashSet<DedupToken>,
+        deduper: Arc<RwLock<Deduper>>,
     ) -> JifResult<()> {
         match self {
-            JifPheader::Anonymous { itree, .. } => {
-                itree.fracture(ord_chunks, deduper, outside_tokens)
-            }
-            JifPheader::Reference { itree, .. } => {
-                itree.fracture(ord_chunks, deduper, outside_tokens)
-            }
+            JifPheader::Anonymous { itree, .. } => itree.fracture(ord_chunks, deduper),
+            JifPheader::Reference { itree, .. } => itree.fracture(ord_chunks, deduper),
         }
     }
 
     /// Absorb owned data pieces into the deduper
-    pub fn dedup(&mut self, deduper: &mut Deduper) {
+    pub fn dedup(&mut self, deduper: &mut RwLockWriteGuard<'_, Deduper>) {
         match self {
             JifPheader::Anonymous { itree, .. } => itree.dedup(deduper),
             JifPheader::Reference { itree, .. } => itree.dedup(deduper),
@@ -458,7 +454,11 @@ impl JifPheader {
     }
 
     /// Resolve an address into a private data page
-    pub(crate) fn resolve_data<'a>(&'a self, addr: u64, deduper: &'a Deduper) -> Option<&'a [u8]> {
+    pub(crate) fn resolve_data<'a>(
+        &'a self,
+        addr: u64,
+        deduper: &'a RwLockReadGuard<'a, Deduper>,
+    ) -> Option<&'a [u8]> {
         self.itree().resolve_data(addr, deduper)
     }
 
@@ -551,7 +551,7 @@ impl JifPheader {
     /// Iterate over the private pages in the pheader
     pub(crate) fn iter_private_pages<'a>(
         &'a self,
-        deduper: &'a Deduper,
+        deduper: &'a RwLockReadGuard<'a, Deduper>,
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         match self {
             JifPheader::Anonymous { itree, .. } => Box::new(itree.iter_private_pages(deduper)),
@@ -598,7 +598,7 @@ impl JifRawPheader {
         jif: JifPheader,
         string_map: &BTreeMap<String, usize>,
         itree_nodes: &mut Vec<IntermediateITreeNode>,
-        deduper: &mut Deduper,
+        deduper: &mut RwLockWriteGuard<'_, Deduper>,
     ) -> JifRawPheader {
         match jif {
             JifPheader::Anonymous {
@@ -914,8 +914,10 @@ pub(crate) mod test {
 
         let prot = pheader.prot();
 
-        let deduper = Deduper::default();
-        let pheaders = pheader.fragment_vmas(&deduper, &None).unwrap();
+        let deduper = RwLock::new(Deduper::default());
+        let pheaders = pheader
+            .fragment_vmas(&deduper.read().unwrap(), &None)
+            .unwrap();
         assert_eq!(pheaders.len(), 16);
 
         for (cnt, pheader) in pheaders.iter().enumerate() {
@@ -961,8 +963,10 @@ pub(crate) mod test {
 
         let prot = pheader.prot();
 
-        let deduper = Deduper::default();
-        let pheaders = pheader.fragment_vmas(&deduper, &None).unwrap();
+        let deduper = RwLock::new(Deduper::default());
+        let pheaders = pheader
+            .fragment_vmas(&deduper.read().unwrap(), &None)
+            .unwrap();
         assert_eq!(pheaders.len(), 16);
 
         for (cnt, pheader) in pheaders.iter().enumerate() {

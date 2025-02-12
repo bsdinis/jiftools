@@ -1,7 +1,7 @@
 //! Data deduplication logic
 
 use std::collections::hash_map::RandomState;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
 
 /// Tokens issued by a [`Deduper`]
@@ -100,8 +100,9 @@ impl Deduper {
         data_map
     }
 
-    pub(crate) fn garbage_collect(&mut self, token: DedupToken) {
-        self.canonical.remove(&token.0);
+    pub(crate) fn garbage_collect(&mut self, tokens_in_use: &HashSet<DedupToken>) {
+        self.canonical
+            .retain(|x, _data| tokens_in_use.contains(&DedupToken(*x)));
     }
 }
 

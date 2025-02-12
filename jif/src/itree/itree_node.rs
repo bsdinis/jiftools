@@ -6,6 +6,7 @@ use crate::itree::interval::{
     AnonIntervalData, IntermediateInterval, Interval, IntervalData, RawInterval, RefIntervalData,
 };
 use std::collections::BTreeMap;
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 pub(crate) const FANOUT: usize = 4;
 pub(crate) const IVAL_PER_NODE: usize = FANOUT - 1;
@@ -37,7 +38,7 @@ impl ITreeNode<AnonIntervalData> {
     pub(crate) fn from_raw_anon(
         raw: &RawITreeNode,
         data_offset: u64,
-        deduper: &Deduper,
+        deduper: &RwLockReadGuard<'_, Deduper>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> ITreeNodeResult<Self> {
         let mut node = ITreeNode::default();
@@ -59,7 +60,7 @@ impl ITreeNode<RefIntervalData> {
     pub(crate) fn from_raw_ref(
         raw: &RawITreeNode,
         data_offset: u64,
-        deduper: &Deduper,
+        deduper: &RwLockReadGuard<'_, Deduper>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> Self {
         let mut node = ITreeNode::default();
@@ -128,7 +129,7 @@ impl IntermediateITreeNode {
     /// Lower an anonymous ITreeNode into a raw
     pub(crate) fn from_materialized_anon(
         node: ITreeNode<AnonIntervalData>,
-        deduper: &mut Deduper,
+        deduper: &mut RwLockWriteGuard<'_, Deduper>,
     ) -> Self {
         let mut inter = IntermediateITreeNode::default();
         for (inter_interval, interval) in inter.ranges.iter_mut().zip(node.ranges.into_iter()) {
@@ -140,7 +141,7 @@ impl IntermediateITreeNode {
     /// Lower a reference ITreeNode into a raw
     pub(crate) fn from_materialized_ref(
         node: ITreeNode<RefIntervalData>,
-        deduper: &mut Deduper,
+        deduper: &mut RwLockWriteGuard<'_, Deduper>,
     ) -> Self {
         let mut inter = IntermediateITreeNode::default();
         for (inter_interval, interval) in inter.ranges.iter_mut().zip(node.ranges.into_iter()) {

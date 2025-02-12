@@ -294,6 +294,8 @@ fn materialize_raw_ref_intervals(
 
 #[cfg(test)]
 mod test {
+    use std::sync::RwLock;
+
     use crate::deduper::Deduper;
     use crate::itree::ITree;
 
@@ -324,7 +326,7 @@ mod test {
     #[test]
     // test that it can create an interval tree no zero pages
     fn create_anon_zero_0() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let data = &[0xff; 0x1000 * 5];
 
         let itree = create_anon_from_zero(data, (0x0000, 0x5000));
@@ -346,7 +348,8 @@ mod test {
             0x1000 * 3
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -358,7 +361,7 @@ mod test {
     #[test]
     // test that it can create an interval tree all zero pages
     fn create_anon_zero_1() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let data = [0x00; 0x1000 * 5];
 
         let itree = create_anon_from_zero(&data, (0x0000, 0x5000));
@@ -369,14 +372,15 @@ mod test {
         assert_eq!(itree.private_data_size(), 0);
         assert_eq!(itree.explicitely_mapped_subregion_size(0x0000, 0x3000), 0);
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree with a trailing zero range
     fn create_anon_zero_2() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x2000..0x3000].fill(0xff);
@@ -399,7 +403,8 @@ mod test {
             0x1000 * 2
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next(), None);
@@ -408,7 +413,7 @@ mod test {
     #[test]
     // test that it can create an interval tree with a trailing data range
     fn create_anon_zero_3() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x3000..0x5000].fill(0xff);
@@ -431,7 +436,8 @@ mod test {
             0x1000 * 2
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -441,7 +447,7 @@ mod test {
     #[test]
     // test that it can create an interval tree no zero pages
     fn create_ref_zero_0() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let data = [0xff; 0x1000 * 5];
 
         let itree = create_ref_from_zero(&data, (0x0000, 0x5000));
@@ -463,7 +469,8 @@ mod test {
             0x1000 * 3
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -475,7 +482,7 @@ mod test {
     #[test]
     // test that it can create an interval tree all zero pages
     fn create_ref_zero_1() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let data = [0x00; 0x1000 * 5];
 
         let itree = create_ref_from_zero(&data, (0x0000, 0x5000));
@@ -493,14 +500,15 @@ mod test {
             3 * 0x1000
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree with a trailing zero range
     fn create_ref_zero_2() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x2000..0x3000].fill(0xff);
@@ -525,7 +533,8 @@ mod test {
             4 * 0x1000
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next(), None);
@@ -534,7 +543,7 @@ mod test {
     #[test]
     // test that it can create an interval tree with a trailing data range
     fn create_ref_zero_3() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let mut data = [0x00u8; 0x1000 * 5];
         data[0x0000..0x1000].fill(0xff);
         data[0x3000..0x5000].fill(0xff);
@@ -558,7 +567,8 @@ mod test {
             0x1000 * 4
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -568,7 +578,7 @@ mod test {
     #[test]
     // test that it can create an interval tree when there is no difference
     fn create_diff_0() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let base = [0xffu8; 0x1000 * 5];
         let overlay = [0xffu8; 0x1000 * 5];
 
@@ -583,14 +593,15 @@ mod test {
             0x1000 * 5
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next(), None);
     }
 
     #[test]
     // test that it can create an interval tree when there is no similarity
     fn create_diff_1() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let base = [0xffu8; 0x1000 * 5];
         let overlay = [0x88u8; 0x1000 * 5];
 
@@ -613,7 +624,8 @@ mod test {
         );
         assert_eq!(itree.implicitely_mapped_subregion_size(0x0000, 0x5000), 0);
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0x88; 0x1000]);
@@ -625,7 +637,7 @@ mod test {
     #[test]
     // test that it can create an interval tree when the overlay is zero
     fn create_diff_2() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let base = [0xffu8; 0x1000 * 5];
         let overlay = [0x00u8; 0x1000 * 5];
 
@@ -644,7 +656,8 @@ mod test {
         );
         assert_eq!(itree.implicitely_mapped_subregion_size(0x0000, 0x5000), 0);
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next(), None);
     }
 
@@ -652,7 +665,7 @@ mod test {
     // test that it can create an interval tree when the overlay is bigger than the base
     // include the fact that the overlay over-region may have zero pages
     fn create_diff_3() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let base = [0xffu8; 0x1000];
         let mut overlay = [0xffu8; 0x1000 * 5];
         overlay[0x4000..].fill(0x00);
@@ -682,7 +695,8 @@ mod test {
             0x1000
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);
@@ -694,7 +708,7 @@ mod test {
     //  - include overlay over-extension with trailing zeroes
     //  - include sparse pages
     fn create_diff_4() {
-        let deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let base = [0xffu8; 0x1000 * 6];
         let mut overlay = [0x00u8; 0x1000 * 10];
         overlay[0x0000..0x1000].fill(0xff); // same
@@ -751,7 +765,8 @@ mod test {
             0x1000 * 2
         );
 
-        let mut it = itree.iter_private_pages(&deduper);
+        let guard = deduper.read().unwrap();
+        let mut it = itree.iter_private_pages(&guard);
         assert_eq!(it.next().unwrap(), vec![0xaa; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xaa; 0x1000]);
         assert_eq!(it.next().unwrap(), vec![0xff; 0x1000]);

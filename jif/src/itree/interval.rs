@@ -1,6 +1,7 @@
 //! Interval representation
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::{IntervalError, IntervalResult};
@@ -28,7 +29,7 @@ pub enum DataSource {
 ///
 /// We consider an interval valid if `start != u64::MAX` and `end != u64::MAX`
 #[derive(Clone, PartialEq, Eq)]
-pub struct Interval<Data: IntervalData> {
+pub struct Interval<Data: IntervalData + Sized> {
     pub(crate) start: u64,
     pub(crate) end: u64,
     pub(crate) data: Data,
@@ -110,10 +111,10 @@ pub trait IntervalData: Default + Clone + From<Vec<u8>> {
     fn take_data(&mut self) -> Option<Vec<u8>>;
 
     /// Dedup data, if owned
-    fn dedup(&mut self, deduper: &mut Deduper);
+    fn dedup(&mut self, deduper: &mut RwLockWriteGuard<'_, Deduper>);
 
     /// View the data (whether owned or referenced)
-    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]>;
+    fn get_data<'a>(&'a self, deduper: &'a RwLockReadGuard<'a, Deduper>) -> Option<&'a [u8]>;
 
     /// Return the dedup token if it is a reference
     fn dedup_token(&self) -> Option<DedupToken>;
@@ -145,14 +146,14 @@ impl IntervalData for AnonIntervalData {
             None
         }
     }
-    fn dedup(&mut self, deduper: &mut Deduper) {
+    fn dedup(&mut self, deduper: &mut RwLockWriteGuard<'_, Deduper>) {
         if let AnonIntervalData::Owned(ref mut v) = self {
             let data = v.split_off(0);
             let token = deduper.insert(data);
             *self = AnonIntervalData::Ref(token);
         }
     }
-    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
+    fn get_data<'a>(&'a self, deduper: &'a RwLockReadGuard<'a, Deduper>) -> Option<&'a [u8]> {
         if let AnonIntervalData::Owned(ref v) = self {
             Some(v)
         } else if let AnonIntervalData::Ref(token) = self {
@@ -203,14 +204,14 @@ impl IntervalData for RefIntervalData {
             None
         }
     }
-    fn dedup(&mut self, deduper: &mut Deduper) {
+    fn dedup(&mut self, deduper: &mut RwLockWriteGuard<'_, Deduper>) {
         if let RefIntervalData::Owned(ref mut v) = self {
             let data = v.split_off(0);
             let token = deduper.insert(data);
             *self = RefIntervalData::Ref(token);
         }
     }
-    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
+    fn get_data<'a>(&'a self, deduper: &'a RwLockReadGuard<'a, Deduper>) -> Option<&'a [u8]> {
         if let RefIntervalData::Owned(ref v) = self {
             Some(v)
         } else if let RefIntervalData::Ref(token) = self {
@@ -257,8 +258,8 @@ impl IntervalData for IntermediateIntervalData {
     fn take_data(&mut self) -> Option<Vec<u8>> {
         None
     }
-    fn dedup(&mut self, _deduper: &mut Deduper) {}
-    fn get_data<'a>(&'a self, deduper: &'a Deduper) -> Option<&'a [u8]> {
+    fn dedup(&mut self, _deduper: &mut RwLockWriteGuard<'_, Deduper>) {}
+    fn get_data<'a>(&'a self, deduper: &'a RwLockReadGuard<'a, Deduper>) -> Option<&'a [u8]> {
         if let IntermediateIntervalData::Ref(token) = self {
             Some(deduper.get(*token))
         } else {
@@ -385,7 +386,7 @@ impl Interval<AnonIntervalData> {
     pub(crate) fn from_raw_anon(
         raw: &RawInterval,
         data_offset: u64,
-        deduper: &Deduper,
+        deduper: &RwLockReadGuard<'_, Deduper>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> IntervalResult<Self> {
         if raw.is_empty() {
@@ -417,7 +418,7 @@ impl Interval<RefIntervalData> {
     pub(crate) fn from_raw_ref(
         raw: &RawInterval,
         data_offset: u64,
-        deduper: &Deduper,
+        deduper: &RwLockReadGuard<'_, Deduper>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> Self {
         if raw.is_empty() {
@@ -470,7 +471,7 @@ impl IntermediateInterval {
 
     pub(crate) fn from_materialized_anon(
         interval: Interval<AnonIntervalData>,
-        deduper: &mut Deduper,
+        deduper: &mut RwLockWriteGuard<'_, Deduper>,
     ) -> Self {
         match interval.data {
             AnonIntervalData::None => IntermediateInterval::default(),
@@ -493,7 +494,7 @@ impl IntermediateInterval {
 
     pub(crate) fn from_materialized_ref(
         interval: Interval<RefIntervalData>,
-        deduper: &mut Deduper,
+        deduper: &mut RwLockWriteGuard<'_, Deduper>,
     ) -> Self {
         match interval.data {
             RefIntervalData::None => IntermediateInterval::default(),

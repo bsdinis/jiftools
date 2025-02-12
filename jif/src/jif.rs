@@ -11,10 +11,14 @@ use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::{page_align, PAGE_SIZE};
 use crate::{error::*, Prot};
+
+use rayon::prelude::*;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
 use std::str::from_utf8;
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
 pub(crate) const JIF_VERSION: u32 = 2;
@@ -27,7 +31,7 @@ pub(crate) const JIF_VERSION: u32 = 2;
 pub struct Jif {
     pub(crate) pheaders: Vec<JifPheader>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
-    pub(crate) deduper: Deduper,
+    pub(crate) deduper: Arc<RwLock<Deduper>>,
     pub(crate) prefetch: bool,
 }
 
@@ -61,10 +65,13 @@ impl Jif {
     pub fn from_raw(mut raw: JifRaw) -> JifResult<Self> {
         let data_map = raw.take_data();
         let (deduper, offset_index) = Deduper::from_data_map(data_map);
+        let deduper = Arc::new(RwLock::new(deduper));
         let pheaders = raw
             .pheaders
-            .iter()
-            .map(|raw_pheader| JifPheader::from_raw(&raw, raw_pheader, &deduper, &offset_index))
+            .par_iter()
+            .map(|raw_pheader| {
+                JifPheader::from_raw(&raw, raw_pheader, deduper.clone(), &offset_index)
+            })
             .collect::<Result<Vec<JifPheader>, _>>()?;
 
         Ok(Jif {
@@ -129,16 +136,14 @@ impl Jif {
 
     /// Construct the interval trees of all the pheaders
     pub fn build_itrees(&mut self, chroot: Option<std::path::PathBuf>) -> JifResult<()> {
-        for pheader in self.pheaders.iter_mut() {
+        self.pheaders.par_iter_mut().try_for_each(|pheader| {
             pheader
-                .build_itree(&self.deduper, &chroot)
+                .build_itree(&self.deduper.read().unwrap(), &chroot)
                 .map_err(|error| JifError::InvalidITree {
                     virtual_range: pheader.virtual_range(),
                     error,
-                })?;
-        }
-
-        Ok(())
+                })
+        })
     }
 
     /// Setup the prefetching section
@@ -146,33 +151,32 @@ impl Jif {
     pub fn setup_prefetch(&mut self) -> JifResult<()> {
         self.prefetch = true;
 
-        let n_pheaders = self.pheaders.len();
-        for idx in 0..n_pheaders {
-            let mut outside_tokens = HashSet::new();
-            self.pheaders
-                .iter()
-                .enumerate()
-                .filter(|(oidx, _p)| *oidx != idx)
-                .for_each(|(_idx, p)| match p {
-                    JifPheader::Anonymous { itree, .. } => itree
-                        .in_order_intervals()
-                        .flat_map(|i| i.data.dedup_token())
-                        .for_each(|x| {
-                            outside_tokens.insert(x);
-                        }),
-                    JifPheader::Reference { itree, .. } => itree
-                        .in_order_intervals()
-                        .flat_map(|i| i.data.dedup_token())
-                        .for_each(|x| {
-                            outside_tokens.insert(x);
-                        }),
-                });
-            let pheader = self
-                .pheaders
-                .get_mut(idx)
-                .expect("this pheader should exist");
-            pheader.fracture_by_ord_chunk(&self.ord_chunks, &mut self.deduper, &outside_tokens)?;
-        }
+        self.pheaders.par_iter_mut().try_for_each(|pheader| {
+            pheader.fracture_by_ord_chunk(&self.ord_chunks, self.deduper.clone())
+        })?;
+
+        let mut tokens_in_use = HashSet::new();
+        self.pheaders
+            .iter()
+            .for_each(|pheader: &JifPheader| match pheader {
+                JifPheader::Anonymous { itree, .. } => itree
+                    .in_order_intervals()
+                    .flat_map(|i| i.data.dedup_token())
+                    .for_each(|token| {
+                        tokens_in_use.insert(token);
+                    }),
+                JifPheader::Reference { itree, .. } => itree
+                    .in_order_intervals()
+                    .flat_map(|i| i.data.dedup_token())
+                    .for_each(|token| {
+                        tokens_in_use.insert(token);
+                    }),
+            });
+
+        self.deduper
+            .write()
+            .unwrap()
+            .garbage_collect(&tokens_in_use);
 
         Ok(())
     }
@@ -182,7 +186,7 @@ impl Jif {
         self.pheaders = self
             .pheaders
             .drain(..)
-            .map(|pheader| pheader.fragment_vmas(&self.deduper, &chroot))
+            .map(|pheader| pheader.fragment_vmas(&self.deduper.read().unwrap(), &chroot))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flat_map(|x| x.into_iter())
@@ -291,10 +295,15 @@ impl Jif {
     }
 
     /// Iterate over all the private pages
-    pub fn iter_private_pages(&self) -> impl Iterator<Item = &[u8]> {
+    pub fn for_each_private_page<F>(&self, func: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        let guard = self.deduper.read().unwrap();
         self.pheaders
             .iter()
-            .flat_map(|phdr| phdr.iter_private_pages(&self.deduper))
+            .flat_map(|pheader| pheader.iter_private_pages(&guard))
+            .for_each(func);
     }
 
     /// Iterate over all the shared regions
@@ -313,10 +322,12 @@ impl Jif {
     }
 
     /// Resolve an address into the private data
-    pub fn resolve_data(&self, addr: u64) -> Option<&[u8]> {
-        self.pheaders
-            .iter()
-            .find_map(|phdr| phdr.resolve_data(addr, &self.deduper))
+    pub fn resolve_data(&self, addr: u64) -> BorrowedData<'_> {
+        BorrowedData {
+            guard: self.deduper.read().unwrap(),
+            pheaders: &self.pheaders,
+            addr,
+        }
     }
 
     /// Get the vmas for an ord chunk
@@ -330,6 +341,20 @@ impl Jif {
             .iter()
             .map(|pheader| pheader.n_intervals())
             .sum()
+    }
+}
+
+pub struct BorrowedData<'a> {
+    guard: RwLockReadGuard<'a, Deduper>,
+    pheaders: &'a [JifPheader],
+    addr: u64,
+}
+
+impl<'a> BorrowedData<'a> {
+    pub fn get(&'a self) -> Option<&'a [u8]> {
+        self.pheaders
+            .iter()
+            .find_map(|phdr| phdr.resolve_data(self.addr, &self.guard))
     }
 }
 
@@ -438,7 +463,7 @@ impl JifRaw {
                     phdr,
                     &string_map,
                     &mut itree_nodes,
-                    &mut jif.deduper,
+                    &mut jif.deduper.write().unwrap(),
                 )
             })
             .collect::<Vec<_>>();
@@ -473,7 +498,7 @@ impl JifRaw {
 
         let (token_map, itree_nodes, n_prefetch) =
             Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
-        let data_segments = jif.deduper.destructure(token_map);
+        let data_segments = jif.deduper.write().unwrap().destructure(token_map);
 
         // clamp n_prefetch if prefetching has not been set up
         let n_prefetch = if jif.prefetch { n_prefetch } else { 0 };
@@ -554,7 +579,7 @@ impl JifRaw {
         index: usize,
         n: usize,
         virtual_range: (u64, u64),
-        deduper: &Deduper,
+        deduper: Arc<RwLock<Deduper>>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> JifResult<ITree<AnonIntervalData>> {
         if index.saturating_add(n) > self.itree_nodes.len() {
@@ -572,12 +597,16 @@ impl JifRaw {
             .skip(index)
             .take(n)
             .map(|(itree_node_idx, raw)| {
-                ITreeNode::from_raw_anon(raw, self.data_offset, deduper, offset_idx).map_err(
-                    |itree_node_err| JifError::BadITreeNode {
-                        itree_node_idx,
-                        itree_node_err,
-                    },
+                ITreeNode::from_raw_anon(
+                    raw,
+                    self.data_offset,
+                    &deduper.read().unwrap(),
+                    offset_idx,
                 )
+                .map_err(|itree_node_err| JifError::BadITreeNode {
+                    itree_node_idx,
+                    itree_node_err,
+                })
             })
             .collect::<JifResult<Vec<_>>>()?;
 
@@ -593,7 +622,7 @@ impl JifRaw {
         index: usize,
         n: usize,
         virtual_range: (u64, u64),
-        deduper: &Deduper,
+        deduper: Arc<RwLock<Deduper>>,
         offset_idx: &BTreeMap<(u64, u64), DedupToken>,
     ) -> JifResult<ITree<RefIntervalData>> {
         if index.saturating_add(n) > self.itree_nodes.len() {
@@ -609,7 +638,9 @@ impl JifRaw {
             .iter()
             .skip(index)
             .take(n)
-            .map(|raw| ITreeNode::from_raw_ref(raw, self.data_offset, deduper, offset_idx))
+            .map(|raw| {
+                ITreeNode::from_raw_ref(raw, self.data_offset, &deduper.read().unwrap(), offset_idx)
+            })
             .collect::<Vec<_>>();
 
         ITree::new(nodes, virtual_range).map_err(|error| JifError::InvalidITree {
@@ -663,7 +694,7 @@ pub(crate) mod test {
                 .map(|(range, ivals)| gen_pheader(*range, ivals))
                 .collect(),
             ord_chunks: vec![],
-            deduper: Deduper::default(),
+            deduper: Arc::new(RwLock::new(Deduper::default())),
             prefetch: false,
         }
     }
@@ -682,9 +713,8 @@ pub(crate) mod test {
             node.ranges[0] = ival;
             node
         }
-        // TODO
         // 1: dedup some segments and create some intermediate itree nodes
-        let mut deduper = Deduper::default();
+        let deduper = RwLock::new(Deduper::default());
         let mut intermediate_nodes = Vec::new();
         intermediate_nodes.push(inter_node(IntermediateInterval {
             start: 0x1000,
@@ -692,14 +722,14 @@ pub(crate) mod test {
             data: IntermediateIntervalData::Zero,
         }));
 
-        let token1 = deduper.insert(vec![42; 0x2000]);
+        let token1 = deduper.write().unwrap().insert(vec![42; 0x2000]);
         intermediate_nodes.push(inter_node(IntermediateInterval {
             start: 0x3000,
             end: 0x5000,
             data: IntermediateIntervalData::Ref(token1),
         }));
 
-        let token2 = deduper.insert(vec![42; 0x2000]);
+        let token2 = deduper.write().unwrap().insert(vec![42; 0x2000]);
         assert_eq!(token1, token2);
         intermediate_nodes.push(inter_node(IntermediateInterval {
             start: 0x6000,
@@ -713,7 +743,7 @@ pub(crate) mod test {
             data: IntermediateIntervalData::Zero,
         }));
 
-        let token3 = deduper.insert(vec![84; 0x1000]);
+        let token3 = deduper.write().unwrap().insert(vec![84; 0x1000]);
         intermediate_nodes.push(inter_node(IntermediateInterval {
             start: 0x10000,
             end: 0x11000,

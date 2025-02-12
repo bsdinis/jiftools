@@ -1,6 +1,9 @@
 //! The interval tree structure
 
 use std::collections::HashSet;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+use rayon::prelude::*;
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;
@@ -32,7 +35,7 @@ pub struct ITree<Data: IntervalData> {
     virtual_range: (u64, u64),
 }
 
-impl<Data: IntervalData + std::default::Default> ITree<Data> {
+impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
     /// Construct a new interval tree
     pub fn new(nodes: Vec<ITreeNode<Data>>, virtual_range: (u64, u64)) -> ITreeResult<Self> {
         let intervals = {
@@ -151,26 +154,25 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     pub fn fracture(
         &mut self,
         ord_chunks: &[OrdChunk],
-        deduper: &mut Deduper,
-        outside_tokens: &HashSet<DedupToken>,
+        deduper: Arc<RwLock<Deduper>>,
     ) -> JifResult<()> {
-        fn fracture_interval<Data: IntervalData>(
-            ival: &mut Interval<Data>,
+        fn fracture_interval<Data: IntervalData + Send>(
+            mut ival: Interval<Data>,
             chunks: &[OrdChunk],
-            deduper: &mut Deduper,
-            intervals: &mut Vec<Interval<Data>>,
-            outside_tokens: &HashSet<DedupToken>,
-        ) {
+            deduper: Arc<RwLock<Deduper>>,
+        ) -> Vec<Interval<Data>> {
+            let mut intervals = Vec::new();
             assert!(!chunks.is_empty());
             let mut ival_data = if ival.data.is_owned() {
                 ival.data.take_data().unwrap()
             } else {
                 assert!(ival.data.is_ref());
-                let dropped_token = ival.data.dedup_token().unwrap();
-                let data = ival.data.get_data(deduper).unwrap().to_vec();
-                if !outside_tokens.contains(&dropped_token) {
-                    deduper.garbage_collect(dropped_token);
-                }
+                let data = ival
+                    .data
+                    .get_data(&deduper.read().unwrap())
+                    .unwrap()
+                    .as_ref()
+                    .to_vec();
                 data
             };
 
@@ -205,7 +207,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                 assert_eq!(off_end as usize, ival_data.len(), "we should be splitting off from the end of a vec with len {:x?}; splitting off from {off_end:x?}", ival_data.len());
                 let data = ival_data.split_off(off_start as usize);
                 ival_data.shrink_to_fit();
-                let token = deduper.insert(data);
+                let token = deduper.write().unwrap().insert(data);
 
                 intervals.push(Interval {
                     start,
@@ -219,14 +221,16 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                 "should've consumed the entire original vector, left with {:x?}B",
                 ival_data.len()
             );
+            intervals
         }
 
         let virt_range = self.virtual_range();
 
         let old_intervals = self
             .nodes
-            .iter_mut()
-            .flat_map(|node| node.ranges.iter_mut())
+            .split_off(0)
+            .into_iter()
+            .flat_map(|node| node.ranges.into_iter())
             .filter(|x| !x.is_none())
             .collect::<Vec<_>>();
 
@@ -235,15 +239,16 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             return Ok(());
         }
 
-        let mut intervals = vec![];
-        for ival in old_intervals {
-            let pertinent_chunks = {
-                let mut v = ord_chunks
-                    .iter()
-                    .filter(|x| x.kind == DataSource::Private)
-                    .filter(|x| ival.start <= x.vaddr && x.vaddr < ival.end)
-                    .inspect(|x| {
-                        assert!(
+        let intervals = old_intervals
+            .into_par_iter()
+            .map(|mut ival| {
+                let pertinent_chunks = {
+                    let mut v = ord_chunks
+                        .iter()
+                        .filter(|x| x.kind == DataSource::Private)
+                        .filter(|x| ival.start <= x.vaddr && x.vaddr < ival.end)
+                        .inspect(|x| {
+                            assert!(
                             x.end() <= virt_range.1,
                             "ord chunk [{:x?}-{:x?}] does not fit within the itree [{:x?}-{:x?}]",
                             x.vaddr,
@@ -251,40 +256,43 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                             virt_range.0,
                             virt_range.1
                         )
-                    })
-                    .copied()
-                    .collect::<Vec<_>>();
+                        })
+                        .copied()
+                        .collect::<Vec<_>>();
 
-                v.sort_by_key(|x| x.vaddr);
-                v
-            };
-
-            if pertinent_chunks.is_empty() {
-                let data = if let Some(data) = ival.data.take_data() {
-                    let token = deduper.insert(data);
-                    Data::from_dedup_token(token)
-                } else if let Some(token) = ival.data.dedup_token() {
-                    Data::from_dedup_token(token)
-                } else {
-                    assert!(!ival.data.is_data());
-                    // not data, not reference, cloning is cheap
-                    ival.data.clone()
+                    v.sort_by_key(|x| x.vaddr);
+                    v
                 };
-                intervals.push(Interval {
-                    start: ival.start,
-                    end: ival.end,
-                    data,
-                });
-            } else {
-                fracture_interval(
-                    ival,
-                    &pertinent_chunks,
-                    deduper,
-                    &mut intervals,
-                    outside_tokens,
-                );
-            }
+
+                if pertinent_chunks.is_empty() {
+                    let data = if let Some(data) = ival.data.take_data() {
+                        let token = deduper.write().unwrap().insert(data);
+                        Data::from_dedup_token(token)
+                    } else if let Some(token) = ival.data.dedup_token() {
+                        Data::from_dedup_token(token)
+                    } else {
+                        assert!(!ival.data.is_data());
+                        // not data, not reference, cloning is cheap
+                        ival.data.clone()
+                    };
+                    vec![Interval {
+                        start: ival.start,
+                        end: ival.end,
+                        data,
+                    }]
+                } else {
+                    fracture_interval(ival, &pertinent_chunks, deduper.clone())
+                }
+            })
+            .reduce(Vec::new, |mut accum, mut v| {
+                accum.append(&mut v);
+                accum
+            });
+
+        /*
+        for ival in old_intervals {
         }
+        */
 
         // VALIDATION phase
 
@@ -295,10 +303,12 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             .filter(|x| x.is_data())
             .all(|x| { x.data.is_ref() }));
         // the data referenced is of the correct length
-        assert!(intervals
-            .iter()
-            .filter(|x| x.is_data())
-            .all(|x| { x.data.get_data(deduper).unwrap().len() == (x.end - x.start) as usize }));
+        {
+            let d = deduper.read().unwrap();
+            assert!(intervals.iter().filter(|x| x.is_data()).all(|x| {
+                x.data.get_data(&d).unwrap().as_ref().len() == (x.end - x.start) as usize
+            }));
+        }
 
         for ival in self
             .nodes
@@ -335,7 +345,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     }
 
     /// Bring owned data into the deduper
-    pub fn dedup(&mut self, deduper: &mut Deduper) {
+    pub fn dedup(&mut self, deduper: &mut RwLockWriteGuard<'_, Deduper>) {
         self.nodes.iter_mut().for_each(|node| {
             node.ranges
                 .iter_mut()
@@ -510,7 +520,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     // the size information to change the output type to &[u8; PAGE_SIZE]
     pub fn iter_private_pages<'a>(
         &'a self,
-        deduper: &'a Deduper,
+        deduper: &'a RwLockReadGuard<'a, Deduper>,
     ) -> impl Iterator<Item = &'a [u8]> + 'a {
         self.in_order_intervals()
             .filter_map(|i| i.data.get_data(deduper).map(|d| d.chunks_exact(PAGE_SIZE)))
@@ -701,7 +711,8 @@ pub(crate) mod test {
         VADDR_END,
     ];
 
-    pub(crate) fn gen_empty<Data: IntervalData + Default + std::fmt::Debug>() -> ITree<Data> {
+    pub(crate) fn gen_empty<Data: IntervalData + Default + std::fmt::Debug + Send>() -> ITree<Data>
+    {
         ITree::new(Vec::new(), (VADDR_BEGIN, VADDR_END)).unwrap()
     }
 
@@ -784,8 +795,8 @@ pub(crate) mod test {
             tree.implicitely_mapped_subregion_size(VADDR_BEGIN, VADDR_END),
             (VADDR_END - VADDR_BEGIN) as usize
         );
-        let deduper = Deduper::default();
-        assert_eq!(tree.iter_private_pages(&deduper).count(), 0);
+        let deduper = RwLock::new(Deduper::default());
+        assert_eq!(tree.iter_private_pages(&deduper.read().unwrap()).count(), 0);
         assert_eq!(tree.resolve(0), Err((VADDR_BEGIN, VADDR_END)));
         assert_eq!(tree.resolve(VADDR_BEGIN), Err((VADDR_BEGIN, VADDR_END)));
         assert_eq!(

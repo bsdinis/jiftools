@@ -1,5 +1,7 @@
 //! Immutable view over the interval tree
 
+use std::sync::RwLockReadGuard;
+
 use crate::deduper::Deduper;
 use crate::itree::interval::{AnonIntervalData, DataSource, LogicalInterval, RefIntervalData};
 use crate::itree::ITree;
@@ -74,7 +76,7 @@ impl<'a> ITreeView<'a> {
     /// Iterate over the private pages in the interval tree
     pub fn iter_private_pages(
         &'a self,
-        deduper: &'a Deduper,
+        deduper: &'a RwLockReadGuard<'a, Deduper>,
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         match self {
             ITreeView::Anon { inner } => Box::new(inner.iter_private_pages(deduper)),
