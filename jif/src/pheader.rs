@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::hash::Hash;
-use std::u64;
 
 use crate::deduper::{DedupToken, Deduper};
 use crate::error::*;

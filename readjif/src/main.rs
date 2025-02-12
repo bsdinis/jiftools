@@ -369,8 +369,7 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                     ords.iter()
                         .filter_map(|o| jif.ord_vma(o))
                         .collect::<HashSet<_>>()
-                        .into_iter()
-                        .count()
+                        .len()
                 ),
                 OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(

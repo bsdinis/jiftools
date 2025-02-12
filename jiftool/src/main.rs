@@ -43,7 +43,7 @@ struct Cli {
     command: Vec<String>,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 enum Command {
     /// Rename a referenced file in the JIF
     Rename {

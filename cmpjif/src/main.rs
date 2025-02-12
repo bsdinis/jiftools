@@ -257,9 +257,11 @@ fn print_intersections(digests: HashMap<std::path::PathBuf, JifDigest>) {
 
     let mut stats = HashMap::new();
     for (path, digest) in &digests {
-        let mut stat = Stats::default();
-        stat.zero_pages = digest.zero_pages;
-        stat.private_pages = digest.private_pages.len();
+        let mut stat = Stats {
+            zero_pages: digest.zero_pages,
+            private_pages: digest.private_pages.len(),
+            ..Default::default()
+        };
 
         for shared_page in &digest.shared_pages {
             if is_unique_shared_page(&digests, path, shared_page) {
