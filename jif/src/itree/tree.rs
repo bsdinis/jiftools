@@ -148,11 +148,11 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     /// Fracture data intervals in ITree by the ordering section boundaries
     /// to ensure they can be reordered in the physical representation
     /// (to be more efficiently placed in the file)
-    pub fn fracture(&mut self, ord_chunks: &[OrdChunk], deduper: &Deduper) -> JifResult<()> {
+    pub fn fracture(&mut self, ord_chunks: &[OrdChunk], deduper: &mut Deduper) -> JifResult<()> {
         fn fracture_interval<Data: IntervalData>(
             ival: &mut Interval<Data>,
             chunk: &OrdChunk,
-            deduper: &Deduper,
+            deduper: &mut Deduper,
             intervals: &mut Vec<Interval<Data>>,
             intervals_to_recheck: &mut Vec<Interval<Data>>,
         ) {
@@ -160,17 +160,24 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                 ival.data.take_data().unwrap()
             } else {
                 assert!(ival.data.is_ref());
-                ival.data.get_data(deduper).unwrap().to_vec()
+                let v = ival.data.get_data(deduper).unwrap().to_vec();
+                deduper.decrement_count(
+                    ival.data
+                        .dedup_token()
+                        .expect("this is a deduped interval, better have an interval"),
+                );
+                v
             };
 
             // breaking an interval where the ordering section starts in the middle
             let mut ival_data = if chunk.vaddr > ival.start {
                 let remainder = ival_data.split_off((chunk.vaddr - ival.start) as usize);
+                let token = deduper.insert(ival_data);
 
                 intervals.push(Interval {
                     start: ival.start,
                     end: chunk.vaddr,
-                    data: ival_data.into(),
+                    data: Data::from_dedup_token(token),
                 });
 
                 remainder
@@ -180,10 +187,11 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
 
             if chunk.end() == ival.end {
                 // if the ordering section is lined at the end
+                let token = deduper.insert(ival_data);
                 intervals.push(Interval {
                     start: chunk.vaddr,
                     end: ival.end,
-                    data: ival_data.into(),
+                    data: Data::from_dedup_token(token),
                 });
             } else {
                 // this is a tricky case: we are breaking an interval that has leftover
@@ -194,17 +202,19 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
                 // So we push it into its own vector to be checked at a later stage
 
                 let remainder = ival_data.split_off((chunk.end() - chunk.vaddr) as usize);
+                let token = deduper.insert(ival_data);
                 intervals.push(Interval {
                     start: chunk.vaddr,
                     end: chunk.end(),
-                    data: ival_data.into(),
+                    data: Data::from_dedup_token(token),
                 });
 
                 assert!(chunk.end() < ival.end);
+                let token = deduper.insert(remainder);
                 intervals_to_recheck.push(Interval {
                     start: chunk.end(),
                     end: ival.end,
-                    data: remainder.into(),
+                    data: Data::from_dedup_token(token),
                 });
             }
         }
@@ -328,8 +338,9 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
 
         intervals.append(&mut intervals_to_recheck);
 
-        // at this point, we should check that all the intervals are owned data
-        intervals.iter().for_each(|x| assert!(x.data.is_owned()));
+        // at this point, we should check that all the intervals are referenced data (all of it was
+        // deduped)
+        intervals.iter().for_each(|x| assert!(x.data.is_ref()));
 
         intervals.reserve(old_intervals.len());
         old_intervals

@@ -117,6 +117,9 @@ pub trait IntervalData: Default + Clone + From<Vec<u8>> {
 
     /// Return the dedup token if it is a reference
     fn dedup_token(&self) -> Option<DedupToken>;
+
+    /// Create the interval data from a dedup token
+    fn from_dedup_token(token: DedupToken) -> Self;
 }
 
 impl IntervalData for AnonIntervalData {
@@ -164,6 +167,10 @@ impl IntervalData for AnonIntervalData {
         } else {
             None
         }
+    }
+
+    fn from_dedup_token(token: DedupToken) -> Self {
+        AnonIntervalData::Ref(token)
     }
 }
 
@@ -219,6 +226,10 @@ impl IntervalData for RefIntervalData {
             None
         }
     }
+
+    fn from_dedup_token(token: DedupToken) -> Self {
+        RefIntervalData::Ref(token)
+    }
 }
 
 impl From<Vec<u8>> for RefIntervalData {
@@ -260,6 +271,10 @@ impl IntervalData for IntermediateIntervalData {
         } else {
             None
         }
+    }
+
+    fn from_dedup_token(token: DedupToken) -> Self {
+        IntermediateIntervalData::Ref(token)
     }
 }
 

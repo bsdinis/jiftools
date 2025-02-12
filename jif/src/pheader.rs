@@ -410,7 +410,7 @@ impl JifPheader {
     pub fn fracture_by_ord_chunk(
         &mut self,
         ord_chunks: &[OrdChunk],
-        deduper: &Deduper,
+        deduper: &mut Deduper,
     ) -> JifResult<()> {
         match self {
             JifPheader::Anonymous { itree, .. } => itree.fracture(ord_chunks, deduper),

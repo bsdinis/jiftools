@@ -1,7 +1,7 @@
 //! Data deduplication logic
 
 use std::collections::hash_map::RandomState;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasher, Hash};
 
 /// Tokens issued by a [`Deduper`]
@@ -17,7 +17,7 @@ pub struct DedupToken(u64);
 #[derive(Default)]
 pub struct Deduper {
     /// map from data hash to the owned data
-    canonical: HashMap<u64, Vec<u8>>,
+    canonical: HashMap<u64, (Vec<u8>, usize)>,
 
     /// hash builder
     hash_builder: RandomState,
@@ -51,22 +51,30 @@ impl Deduper {
 
     pub(crate) fn insert(&mut self, data: Vec<u8>) -> DedupToken {
         let token = self.hash(&data);
-        if self.canonical.contains_key(&token) {
+        if let Some((_data, ctr)) = self.canonical.get_mut(&token) {
+            *ctr += 1;
             return DedupToken(token);
         }
 
-        self.canonical.insert(token, data);
+        self.canonical.insert(token, (data, 1));
         DedupToken(token)
     }
 
-    pub(crate) fn get(&self, token: DedupToken) -> &[u8] {
-        self.canonical.get(&token.0).map(|v| v.as_ref()).expect("by construction, requesting data from the deduper with a dedup token should always work")
+    pub(crate) fn decrement_count(&mut self, token: DedupToken) {
+        let remove = if let Some((_data, ctr)) = self.canonical.get_mut(&token.0) {
+            *ctr += 1;
+            *ctr == 0
+        } else {
+            false
+        };
+
+        if remove {
+            self.canonical.remove(&token.0);
+        }
     }
 
-    /// Remove items not in tokens_in_use
-    pub(crate) fn garbage_collect(&mut self, tokens_in_use: HashSet<DedupToken>) {
-        self.canonical
-            .retain(|k, _v| tokens_in_use.contains(&DedupToken(*k)));
+    pub(crate) fn get(&self, token: DedupToken) -> &[u8] {
+        self.canonical.get(&token.0).map(|(v, _ctr)| v.as_ref()).expect("by construction, requesting data from the deduper with a dedup token should always work")
     }
 
     pub(crate) fn destructure(
@@ -87,7 +95,7 @@ impl Deduper {
                 "badly constructed data segment: there is a gap"
             );
 
-            let data = self.canonical.remove(&tok.0).unwrap_or_else(|| {
+            let (data, _cnt) = self.canonical.remove(&tok.0).unwrap_or_else(|| {
                 panic!(
                     "failed to get token {}: by construction, data should be here",
                     tok.0

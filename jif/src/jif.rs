@@ -145,19 +145,10 @@ impl Jif {
     /// This includes fracturing ITree intervals by ord chunks
     pub fn setup_prefetch(&mut self) -> JifResult<()> {
         self.prefetch = true;
+
         self.pheaders
             .iter_mut()
-            .try_for_each(|p| p.fracture_by_ord_chunk(&self.ord_chunks, &self.deduper))?;
-        self.pheaders
-            .iter_mut()
-            .for_each(|p| p.dedup(&mut self.deduper));
-
-        let mut tokens_in_use = HashSet::new();
-        self.pheaders
-            .iter()
-            .for_each(|p| p.add_tokens_in_use(&mut tokens_in_use));
-
-        self.deduper.garbage_collect(tokens_in_use);
+            .try_for_each(|p| p.fracture_by_ord_chunk(&self.ord_chunks, &mut self.deduper))?;
         Ok(())
     }
 
