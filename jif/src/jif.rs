@@ -41,9 +41,9 @@ pub struct JifRaw {
     pub(crate) strings_backing: Vec<u8>,
     pub(crate) itree_nodes: Vec<RawITreeNode>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
+    pub(crate) n_prefetch: u64,
     pub(crate) data_offset: u64,
     pub(crate) data_segments: BTreeMap<(u64, u64), Vec<u8>>,
-    pub(crate) n_prefetch: u64,
 }
 
 #[allow(dead_code)]
@@ -780,6 +780,7 @@ impl std::fmt::Debug for JifRaw {
             .field("strings", &strings)
             .field("itrees", &self.itree_nodes)
             .field("ord", &self.ord_chunks)
+            .field("n_prefetch", &self.n_prefetch)
             .field(
                 "data_range",
                 &format!(
