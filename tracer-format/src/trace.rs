@@ -23,7 +23,7 @@ pub fn read_trace<BR: BufRead>(reader: BR) -> Result<Vec<TimestampedAccess>, Tra
 }
 
 /// Dedup and sort a trace
-pub fn dedup_and_sort(log: Vec<TimestampedAccess>) -> Vec<TimestampedAccess> {
+pub fn dedup_and_sort_by_addr(log: Vec<TimestampedAccess>) -> Vec<TimestampedAccess> {
     // deduping:
     // construct an addr -> access hashmap map, where we keep only the first access
     let mut map = HashMap::with_capacity(log.len());
@@ -145,19 +145,19 @@ mod test {
         ];
 
         assert_eq!(
-            dedup_and_sort(original),
+            dedup_and_sort_by_addr(original),
             vec![
                 TimestampedAccess {
                     usecs: 1,
                     addr: 0x1000
                 },
                 TimestampedAccess {
-                    usecs: 2,
-                    addr: 0x3000
-                },
-                TimestampedAccess {
                     usecs: 3,
                     addr: 0x2000
+                },
+                TimestampedAccess {
+                    usecs: 2,
+                    addr: 0x3000
                 },
             ]
         )
@@ -188,19 +188,19 @@ mod test {
         ];
 
         assert_eq!(
-            dedup_and_sort(original),
+            dedup_and_sort_by_addr(original),
             vec![
                 TimestampedAccess {
                     usecs: 1,
                     addr: 0x1000
                 },
                 TimestampedAccess {
-                    usecs: 2,
-                    addr: 0x3000
-                },
-                TimestampedAccess {
                     usecs: 3,
                     addr: 0x2000
+                },
+                TimestampedAccess {
+                    usecs: 2,
+                    addr: 0x3000
                 },
             ]
         )
