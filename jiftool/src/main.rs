@@ -63,10 +63,13 @@ enum Command {
     },
 
     /// Fragment VMAs in the JIF, but still finding zero pages and ref segments
-    Fragment {
+    FragmentVmas {
         #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
         chroot_path: Option<std::path::PathBuf>,
     },
+
+    /// Setup the prefetch section (includes fragmenting the ordering intervals)
+    SetupPrefetch,
 
     /// Add an ordering section
     ///
@@ -76,18 +79,6 @@ enum Command {
         /// Filepath of the timestamped access log (defaults to `stdin`)
         #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
         time_log: Option<std::path::PathBuf>,
-
-        // True if doing prefetch setup (breaking intervals per ord chunks).
-        #[arg(long)]
-        setup_prefetch: bool,
-
-        // fragment the itrees
-        #[arg(long)]
-        fragment: bool,
-
-        // fragment itrees into different vams
-        #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath, num_args = 0..=1, default_missing_value = None)]
-        chroot: Option<std::path::PathBuf>,
     },
 }
 
@@ -104,15 +95,13 @@ fn main() -> anyhow::Result<()> {
         Some(Command::BuildItrees { chroot_path }) => jif
             .build_itrees(chroot_path)
             .context("failed to build ITrees")?,
-        Some(Command::Fragment { chroot_path }) => jif
+        Some(Command::FragmentVmas { chroot_path }) => jif
             .fragment_vmas(chroot_path)
             .context("failed to fragment vmas")?,
-        Some(Command::AddOrd {
-            time_log,
-            setup_prefetch,
-            fragment,
-            chroot,
-        }) => {
+        Some(Command::SetupPrefetch) => jif
+            .fracture_by_ord_chunk()
+            .context("failed to setup prefetch section")?,
+        Some(Command::AddOrd { time_log }) => {
             let tsa_log = match time_log {
                 Some(fname) => {
                     let file =
@@ -129,12 +118,6 @@ fn main() -> anyhow::Result<()> {
             let ords = construct_ord_chunks(&jif, tsa_log);
 
             jif.add_ordering_info(ords)?;
-            if setup_prefetch {
-                jif.fracture_by_ord_chunk()?;
-            }
-            if fragment {
-                jif.fragment_vmas(chroot)?;
-            }
         }
     }
 
