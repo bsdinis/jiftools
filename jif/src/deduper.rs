@@ -100,13 +100,8 @@ impl Deduper {
         data_map
     }
 
-    pub(crate) fn garbage_collect<'a>(
-        &mut self,
-        dropped_tokens: impl Iterator<Item = &'a DedupToken>,
-    ) {
-        for token in dropped_tokens {
-            self.canonical.remove(&token.0);
-        }
+    pub(crate) fn garbage_collect(&mut self, token: DedupToken) {
+        self.canonical.remove(&token.0);
     }
 }
 

@@ -156,76 +156,74 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
     ) -> JifResult<()> {
         fn fracture_interval<Data: IntervalData>(
             ival: &mut Interval<Data>,
-            chunk: &OrdChunk,
+            chunks: &[OrdChunk],
             deduper: &mut Deduper,
             intervals: &mut Vec<Interval<Data>>,
-            intervals_to_recheck: &mut Vec<Interval<Data>>,
             outside_tokens: &HashSet<DedupToken>,
         ) {
-            let mut dropped_tokens = HashSet::new();
+            assert!(!chunks.is_empty());
             let mut ival_data = if ival.data.is_owned() {
                 ival.data.take_data().unwrap()
             } else {
                 assert!(ival.data.is_ref());
-                dropped_tokens.insert(ival.data.dedup_token().unwrap());
-                ival.data.get_data(deduper).unwrap().to_vec()
+                let dropped_token = ival.data.dedup_token().unwrap();
+                let data = ival.data.get_data(deduper).unwrap().to_vec();
+                if !outside_tokens.contains(&dropped_token) {
+                    deduper.garbage_collect(dropped_token);
+                }
+                data
             };
 
-            // breaking an interval where the ordering section starts in the middle
-            let mut ival_data = if chunk.vaddr > ival.start {
-                let remainder = ival_data.split_off((chunk.vaddr - ival.start) as usize);
-                let token = deduper.insert(ival_data);
+            let ranges = {
+                let mut ranges = Vec::with_capacity(chunks.len() + 2);
+                let mut curr_addr = ival.start;
+                for chunk in chunks {
+                    if curr_addr < chunk.vaddr {
+                        ranges.push((curr_addr, chunk.vaddr));
+                        curr_addr = chunk.vaddr;
+                    }
 
-                intervals.push(Interval {
-                    start: ival.start,
-                    end: chunk.vaddr,
-                    data: Data::from_dedup_token(token),
-                });
-
-                remainder
-            } else {
-                ival_data
+                    assert!(
+                        chunk.end() <= ival.end,
+                        "invalid ord chunk for interval in range [{:#x?}; {:#x?}): {:x?}",
+                        ival.start,
+                        ival.end,
+                        chunk
+                    );
+                    ranges.push((curr_addr, chunk.end()));
+                    curr_addr = chunk.end();
+                }
+                if curr_addr < ival.end {
+                    ranges.push((curr_addr, ival.end));
+                }
+                ranges
             };
 
-            if chunk.end() == ival.end {
-                // if the ordering section is lined at the end
-                let token = deduper.insert(ival_data);
-                intervals.push(Interval {
-                    start: chunk.vaddr,
-                    end: ival.end,
-                    data: Data::from_dedup_token(token),
-                });
-            } else {
-                // this is a tricky case: we are breaking an interval that has leftover
-                // data to the right: this means there could be another ordering chunk
-                // that could fracture the interval, but we cannot push it again into
-                // the old_intervals vector.
-                //
-                // So we push it into its own vector to be checked at a later stage
+            for (start, end) in ranges.into_iter().rev() {
+                let off_start = start - ival.start;
+                let off_end = end - ival.start;
+                assert_eq!(off_end as usize, ival_data.len(), "we should be splitting off from the end of a vec with len {:x?}; splitting off from {off_end:x?}", ival_data.len());
+                let data = ival_data.split_off(off_start as usize);
+                ival_data.shrink_to_fit();
+                let token = deduper.insert(data);
 
-                let remainder = ival_data.split_off((chunk.end() - chunk.vaddr) as usize);
-                let token = deduper.insert(ival_data);
                 intervals.push(Interval {
-                    start: chunk.vaddr,
-                    end: chunk.end(),
-                    data: Data::from_dedup_token(token),
-                });
-
-                assert!(chunk.end() < ival.end);
-                let token = deduper.insert(remainder);
-                intervals_to_recheck.push(Interval {
-                    start: chunk.end(),
-                    end: ival.end,
+                    start,
+                    end,
                     data: Data::from_dedup_token(token),
                 });
             }
 
-            deduper.garbage_collect(dropped_tokens.difference(outside_tokens));
+            assert!(
+                ival_data.is_empty(),
+                "should've consumed the entire original vector, left with {:x?}B",
+                ival_data.len()
+            );
         }
 
         let virt_range = self.virtual_range();
 
-        let mut old_intervals = self
+        let old_intervals = self
             .nodes
             .iter_mut()
             .flat_map(|node| node.ranges.iter_mut())
@@ -237,127 +235,70 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             return Ok(());
         }
 
-        let pertinent_chunks = {
-            let mut v = ord_chunks
-                .iter()
-                .filter(|x| x.kind == DataSource::Private)
-                .filter(|x| virt_range.0 <= x.vaddr && x.vaddr < virt_range.1)
-                .inspect(|x| {
-                    assert!(
-                        x.end() <= virt_range.1,
-                        "ord chunk [{:x?}-{:x?}] does not fit within the itree [{:x?}-{:x?}]",
-                        x.vaddr,
-                        x.end(),
-                        virt_range.0,
-                        virt_range.1
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            v.sort_by_key(|x| x.vaddr);
-            v
-        };
-
         let mut intervals = vec![];
-        let mut intervals_to_recheck = vec![];
+        for ival in old_intervals {
+            let pertinent_chunks = {
+                let mut v = ord_chunks
+                    .iter()
+                    .filter(|x| x.kind == DataSource::Private)
+                    .filter(|x| ival.start <= x.vaddr && x.vaddr < ival.end)
+                    .inspect(|x| {
+                        assert!(
+                            x.end() <= virt_range.1,
+                            "ord chunk [{:x?}-{:x?}] does not fit within the itree [{:x?}-{:x?}]",
+                            x.vaddr,
+                            x.end(),
+                            virt_range.0,
+                            virt_range.1
+                        )
+                    })
+                    .copied()
+                    .collect::<Vec<_>>();
 
-        for chunk in pertinent_chunks {
-            if old_intervals.is_empty() && intervals_to_recheck.is_empty() {
-                // no more intervals to break
-                break;
-            }
+                v.sort_by_key(|x| x.vaddr);
+                v
+            };
 
-            let mut old_ival_idx_to_remove = None;
-            // check the old intervals
-
-            if let Some((idx, ival)) = old_intervals
-                .iter_mut()
-                .enumerate()
-                .filter(|(_idx, x)| x.is_data())
-                .find(|(_idx, x)| x.start <= chunk.vaddr && chunk.vaddr < x.end)
-            {
-                assert!(chunk.end() <= ival.end, "found an ordering chunk [{:x?}-{:x?}] that spans multiple intervals: (first interval is [{:x?}-{:x?}]",
-                    chunk.vaddr, chunk.end(), ival.start, ival.end);
-
-                // if the interval matches with the entirety of the ordering chunk,
-                // we shouldn't do anything
-                if ival.start == chunk.vaddr && ival.end == chunk.end() {
-                    continue;
-                }
-
-                old_ival_idx_to_remove = Some(idx);
+            if pertinent_chunks.is_empty() {
+                let data = if let Some(data) = ival.data.take_data() {
+                    let token = deduper.insert(data);
+                    Data::from_dedup_token(token)
+                } else if let Some(token) = ival.data.dedup_token() {
+                    Data::from_dedup_token(token)
+                } else {
+                    assert!(!ival.data.is_data());
+                    // not data, not reference, cloning is cheap
+                    ival.data.clone()
+                };
+                intervals.push(Interval {
+                    start: ival.start,
+                    end: ival.end,
+                    data,
+                });
+            } else {
                 fracture_interval(
                     ival,
-                    chunk,
+                    &pertinent_chunks,
                     deduper,
                     &mut intervals,
-                    &mut intervals_to_recheck,
                     outside_tokens,
                 );
             }
-
-            if let Some(idx_to_remove) = old_ival_idx_to_remove {
-                old_intervals.remove(idx_to_remove);
-                continue;
-            }
-
-            let mut new_intervals = vec![];
-            let mut idx_to_move_to_ivals = None;
-            let mut idx_to_remove = None;
-
-            if let Some((idx, ival)) = intervals_to_recheck
-                .iter_mut()
-                .enumerate()
-                .find(|(_idx, x)| x.start <= chunk.vaddr && chunk.vaddr < x.end)
-            {
-                assert!(chunk.end() <= ival.end, "found an ordering chunk [{:x?}-{:x?}] that spans multiple intervals: (first interval is [{:x?}-{:x?}]",
-                        chunk.vaddr, chunk.end(), ival.start, ival.end);
-                assert!(
-                    ival.is_data(),
-                    "we shouldn't have to recheck intervals that aren't data"
-                );
-
-                if ival.start == chunk.vaddr && ival.end == chunk.end() {
-                    idx_to_move_to_ivals = Some(idx);
-                } else {
-                    idx_to_remove = Some(idx);
-                    fracture_interval(
-                        ival,
-                        chunk,
-                        deduper,
-                        &mut intervals,
-                        &mut new_intervals,
-                        outside_tokens,
-                    );
-                }
-            } else {
-                panic!(
-                    "failed to find a data interval for private-data backed orc {:#x?}",
-                    chunk
-                );
-            }
-
-            // case where the remaining interval matches perfectly with an existing ord chunk
-            if let Some(idx) = idx_to_move_to_ivals {
-                intervals.push(intervals_to_recheck.remove(idx));
-            }
-            if let Some(idx) = idx_to_remove {
-                intervals_to_recheck.remove(idx);
-            }
-
-            intervals_to_recheck.append(&mut new_intervals);
         }
 
-        intervals.append(&mut intervals_to_recheck);
+        // VALIDATION phase
 
-        // at this point, we should check that all the intervals are referenced data (all of it was
-        // deduped)
-        intervals.iter().for_each(|x| assert!(x.data.is_ref()));
-
-        intervals.reserve(old_intervals.len());
-        old_intervals
-            .into_iter()
-            .for_each(|x| intervals.push(x.clone()));
+        // at this point, we should check that all the intervals are referenced data
+        // (all of it was deduped)
+        assert!(intervals
+            .iter()
+            .filter(|x| x.is_data())
+            .all(|x| { x.data.is_ref() }));
+        // the data referenced is of the correct length
+        assert!(intervals
+            .iter()
+            .filter(|x| x.is_data())
+            .all(|x| { x.data.get_data(deduper).unwrap().len() == (x.end - x.start) as usize }));
 
         for ival in self
             .nodes
@@ -381,9 +322,7 @@ impl<Data: IntervalData + std::default::Default> ITree<Data> {
             }
         }
 
-        intervals.iter().filter(|x| x.is_data()).for_each(|x| {
-            assert!(x.data.get_data(deduper).unwrap().len() == (x.end - x.start) as usize)
-        });
+        // rebuild the ITREE
 
         *self = Self::build(intervals, self.virtual_range()).map_err(|error| {
             JifError::InvalidITree {
