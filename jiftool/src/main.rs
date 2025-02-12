@@ -71,6 +71,9 @@ enum Command {
     /// Setup the prefetch section (includes fragmenting the ordering intervals)
     SetupPrefetch,
 
+    /// Tag the VMAs with a bit letting it know whether they are in the ordering section
+    TagVmas,
+
     /// Add an ordering section
     ///
     /// Ingests a timestamped access log (each line of format `<usecs>: <address>`)
@@ -101,6 +104,7 @@ fn main() -> anyhow::Result<()> {
         Some(Command::SetupPrefetch) => jif
             .setup_prefetch()
             .context("failed to setup prefetch section")?,
+        Some(Command::TagVmas) => jif.tag_vmas(),
         Some(Command::AddOrd { time_log }) => {
             let tsa_log = match time_log {
                 Some(fname) => {

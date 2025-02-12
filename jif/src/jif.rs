@@ -3,7 +3,6 @@
 //! Includes both the raw and materialized variants
 
 use crate::deduper::{DedupToken, Deduper};
-use crate::error::*;
 use crate::itree::interval::DataSource;
 use crate::itree::interval::{AnonIntervalData, LogicalInterval, RawInterval, RefIntervalData};
 use crate::itree::itree_node::{ITreeNode, IntermediateITreeNode, RawITreeNode};
@@ -11,6 +10,7 @@ use crate::itree::ITree;
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
 use crate::utils::{page_align, PAGE_SIZE};
+use crate::{error::*, Prot};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
@@ -195,6 +195,27 @@ impl Jif {
         Ok(())
     }
 
+    /// Tag VMAs that belong are referenced by the ordering section
+    pub fn tag_vmas(&mut self) {
+        // clear tags
+        for pheader in self.pheaders.iter_mut() {
+            match pheader {
+                JifPheader::Anonymous { prot, .. } => *prot &= !(Prot::InOrdering as u8),
+                JifPheader::Reference { prot, .. } => *prot &= !(Prot::InOrdering as u8),
+            }
+        }
+
+        let vaddrs: Vec<_> = self.ord_chunks.iter().map(|x| x.vaddr).collect();
+        for vaddr in vaddrs {
+            if let Some(pheader) = self.mapping_pheader_mut(vaddr) {
+                match pheader {
+                    JifPheader::Anonymous { prot, .. } => *prot |= Prot::InOrdering as u8,
+                    JifPheader::Reference { prot, .. } => *prot |= Prot::InOrdering as u8,
+                }
+            }
+        }
+    }
+
     /// Access the pheaders
     pub fn pheaders(&self) -> &[JifPheader] {
         &self.pheaders
@@ -239,10 +260,17 @@ impl Jif {
             .map(|(idx, _pheader)| idx)
     }
 
-    // Find the pheader (by index) that maps a particular address
+    // Find the pheader that maps a particular address
     pub fn mapping_pheader(&self, vaddr: u64) -> Option<&JifPheader> {
         self.pheaders
             .iter()
+            .find(|pheader| pheader.mapps_addr(vaddr))
+    }
+
+    // Find the pheader that maps a particular address
+    pub fn mapping_pheader_mut(&mut self, vaddr: u64) -> Option<&mut JifPheader> {
+        self.pheaders
+            .iter_mut()
             .find(|pheader| pheader.mapps_addr(vaddr))
     }
 

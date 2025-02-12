@@ -25,6 +25,7 @@ use std::path::PathBuf;
 /// VMA protection bits
 #[repr(u8)]
 pub enum Prot {
+    InOrdering = 1u8 << 3,
     Read = 1u8 << 2,
     Write = 1u8 << 1,
     Exec = 1u8 << 0,
@@ -766,7 +767,12 @@ impl std::fmt::Debug for JifPheader {
             .field(
                 "prot",
                 &format!(
-                    "{}{}{}",
+                    "{}{}{}{}",
+                    if self.prot() & Prot::InOrdering as u8 != 0 {
+                        "*"
+                    } else {
+                        "-"
+                    },
                     if self.prot() & Prot::Read as u8 != 0 {
                         "r"
                     } else {
@@ -818,7 +824,12 @@ impl std::fmt::Debug for JifRawPheader {
             .field(
                 "prot",
                 &format!(
-                    "{}{}{}",
+                    "{}{}{}{}",
+                    if self.prot & Prot::InOrdering as u8 != 0 {
+                        "r"
+                    } else {
+                        "-"
+                    },
                     if self.prot & Prot::Read as u8 != 0 {
                         "r"
                     } else {
