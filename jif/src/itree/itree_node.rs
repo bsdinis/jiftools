@@ -179,7 +179,8 @@ impl RawITreeNode {
                 continue;
             }
 
-            *raw_interval = raw_intervals.remove(&(inter_interval.start, inter_interval.end)).expect("cannot convert IntermediateInterval to RawInterval: `raw_intervals` is badly constructed");
+            *raw_interval = raw_intervals.remove(&(inter_interval.start, inter_interval.end))
+                .expect(&format!("cannot convert IntermediateInterval to RawInterval: `raw_intervals` is badly constructed: interval {:x?} is not present", inter_interval));
         }
         raw
     }

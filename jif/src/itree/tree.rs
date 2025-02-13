@@ -163,6 +163,7 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
         ) -> Vec<Interval<Data>> {
             let mut intervals = Vec::new();
             assert!(!chunks.is_empty());
+            assert!(chunks.is_sorted_by_key(|c| c.addr()));
             let mut ival_data = if ival.data.is_owned() {
                 ival.data.take_data().unwrap()
             } else {
@@ -185,6 +186,7 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
                         curr_addr = chunk.vaddr;
                     }
 
+                    // check chunk is in range
                     assert!(
                         chunk.end() <= ival.end,
                         "invalid ord chunk for interval in range [{:#x?}; {:#x?}): {:x?}",
@@ -192,8 +194,15 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
                         ival.end,
                         chunk
                     );
-                    ranges.push((curr_addr, chunk.end()));
-                    curr_addr = chunk.end();
+
+                    // might seem non-sensical, but if we have duplicate ord chunks, curr_addr
+                    // might be == to chunk.end()
+                    //
+                    // we can't push empty ranges
+                    if curr_addr < chunk.end() {
+                        ranges.push((curr_addr, chunk.end()));
+                        curr_addr = chunk.end();
+                    }
                 }
                 if curr_addr < ival.end {
                     ranges.push((curr_addr, ival.end));
@@ -259,8 +268,10 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
                         })
                         .copied()
                         .collect::<Vec<_>>();
+                    v.sort_by_key(|x| x.addr());
+                    assert!(v.iter().all(|x| x.n_pages > 0));
+                    v.dedup_by_key(|x| x.addr());
 
-                    v.sort_by_key(|x| x.vaddr);
                     v
                 };
 
@@ -289,11 +300,6 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
                 accum
             });
 
-        /*
-        for ival in old_intervals {
-        }
-        */
-
         // VALIDATION phase
 
         // at this point, we should check that all the intervals are referenced data
@@ -308,6 +314,14 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
             assert!(intervals.iter().filter(|x| x.is_data()).all(|x| {
                 x.data.get_data(&d).unwrap().as_ref().len() == (x.end - x.start) as usize
             }));
+        }
+        // no empty intervals
+        {
+            let d = deduper.read().unwrap();
+            assert!(intervals
+                .iter()
+                .filter(|x| x.is_data())
+                .all(|x| { x.data.get_data(&d).unwrap().as_ref().len() > 0 }));
         }
 
         for ival in self
