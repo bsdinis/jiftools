@@ -464,10 +464,10 @@ impl JifRaw {
         let data_offset = jif.data_offset();
         let pheaders = jif
             .pheaders
-            .into_iter()
+            .iter()
             .map(|phdr| {
                 JifRawPheader::from_materialized(
-                    phdr,
+                    &phdr,
                     &string_map,
                     &mut itree_nodes,
                     &mut jif.deduper.write().unwrap(),
@@ -515,6 +515,90 @@ impl JifRaw {
             strings_backing,
             itree_nodes,
             ord_chunks: jif.ord_chunks,
+            data_offset,
+            data_segments,
+            n_prefetch,
+        }
+    }
+
+    /// Construct a raw JIF from a materialized one
+    pub fn from_materialized_ref(jif: &mut Jif) -> Self {
+        // print pheaders in order
+        jif.pheaders.sort_by_key(|phdr| phdr.virtual_range().0);
+
+        let string_map = {
+            let strings = jif
+                .strings()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<HashSet<String>>();
+
+            let mut offset = 0;
+            strings
+                .into_iter()
+                .map(|s| {
+                    let r = (s, offset);
+                    offset += r.0.len() + 1 /* NUL */;
+                    r
+                })
+                .collect::<BTreeMap<_, _>>()
+        };
+
+        let mut itree_nodes = Vec::new();
+        let data_offset = jif.data_offset();
+        let pheaders = jif
+            .pheaders
+            .iter()
+            .map(|phdr| {
+                JifRawPheader::from_materialized(
+                    phdr,
+                    &string_map,
+                    &mut itree_nodes,
+                    &mut jif.deduper.write().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let strings = {
+            let mut m = string_map.into_iter().collect::<Vec<_>>();
+            m.sort_by_key(|(_s, off)| *off);
+            m
+        };
+
+        let strings_size = strings
+            .last()
+            .map(|(s, off)| off + s.len() + 1 /* NUL */)
+            .unwrap_or(0);
+
+        let strings_backing = {
+            let mut s = Vec::with_capacity(strings_size);
+            for (string, _offset) in strings {
+                s.append(&mut string.into_bytes());
+                s.push(0); // NUL byte
+            }
+
+            s
+        };
+
+        // Sort chunks by kind.
+        jif.ord_chunks.sort_by_key(|c| match c.kind {
+            DataSource::Zero => 1,
+            DataSource::Shared => 2,
+            DataSource::Private => 0,
+        });
+
+        let (token_map, itree_nodes, n_prefetch) =
+            Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
+        let data_segments = jif.deduper.read().unwrap().clone_segments(token_map);
+
+        // clamp n_prefetch if prefetching has not been set up
+        let n_prefetch = if jif.prefetch { n_prefetch } else { 0 };
+
+        JifRaw {
+            pheaders,
+            strings_backing,
+            itree_nodes,
+            ord_chunks: jif.ord_chunks.clone(),
             data_offset,
             data_segments,
             n_prefetch,

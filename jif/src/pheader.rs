@@ -595,7 +595,7 @@ impl JifRawPheader {
 
     /// Reconstruct the pheader from its materialized counterpart
     pub(crate) fn from_materialized(
-        jif: JifPheader,
+        jif: &JifPheader,
         string_map: &BTreeMap<String, usize>,
         itree_nodes: &mut Vec<IntermediateITreeNode>,
         deduper: &mut RwLockWriteGuard<'_, Deduper>,
@@ -606,14 +606,15 @@ impl JifRawPheader {
                 itree,
                 prot,
             } => {
-                let (vbegin, vend) = vaddr_range;
+                let (vbegin, vend) = *vaddr_range;
                 let (itree_idx, itree_n_nodes) = {
                     let idx = itree_nodes.len() as u32;
                     let len = itree.nodes.len() as u32;
 
                     itree_nodes.reserve(itree.nodes.len());
-                    for node in itree.nodes {
-                        let new_node = IntermediateITreeNode::from_materialized_anon(node, deduper);
+                    for node in itree.nodes.iter() {
+                        let new_node =
+                            IntermediateITreeNode::from_materialized_anon(node.clone(), deduper);
                         itree_nodes.push(new_node)
                     }
 
@@ -627,7 +628,7 @@ impl JifRawPheader {
                     itree_idx,
                     itree_n_nodes,
                     pathname_offset: u32::MAX,
-                    prot,
+                    prot: *prot,
                 }
             }
             JifPheader::Reference {
@@ -637,32 +638,33 @@ impl JifRawPheader {
                 ref_path,
                 ref_offset,
             } => {
-                let (vbegin, vend) = vaddr_range;
+                let (vbegin, vend) = *vaddr_range;
                 let (itree_idx, itree_n_nodes) = {
                     let idx = itree_nodes.len() as u32;
                     let len = itree.nodes.len() as u32;
 
                     itree_nodes.reserve(itree.nodes.len());
-                    for node in itree.nodes {
-                        let new_node = IntermediateITreeNode::from_materialized_ref(node, deduper);
+                    for node in itree.nodes.iter() {
+                        let new_node =
+                            IntermediateITreeNode::from_materialized_ref(node.clone(), deduper);
                         itree_nodes.push(new_node)
                     }
 
                     (idx, len)
                 };
                 let pathname_offset = string_map
-                    .get(&ref_path)
+                    .get(ref_path)
                     .map(|path_offset| *path_offset as u32)
                     .unwrap_or(u32::MAX);
 
                 JifRawPheader {
                     vbegin,
                     vend,
-                    ref_offset,
+                    ref_offset: *ref_offset,
                     itree_idx,
                     itree_n_nodes,
                     pathname_offset,
-                    prot,
+                    prot: *prot,
                 }
             }
         }

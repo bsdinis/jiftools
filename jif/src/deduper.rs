@@ -61,6 +61,45 @@ impl Deduper {
         self.canonical.get(&token.0).map(|v| v.as_ref()).expect("by construction, requesting data from the deduper with a dedup token should always work")
     }
 
+    pub(crate) fn clone_segments(
+        &self,
+        token_map: BTreeMap<DedupToken, (u64, u64)>,
+    ) -> BTreeMap<(u64, u64), Vec<u8>> {
+        let intervals = {
+            let mut v = token_map.into_iter().collect::<Vec<_>>();
+            v.sort_by_key(|(_tok, range)| *range);
+            v
+        };
+
+        let mut data_map = BTreeMap::new();
+        let mut last_issued = intervals.first().map(|(_tok, range)| range.0).unwrap_or(0);
+        for (tok, range) in intervals {
+            assert_eq!(
+                range.0, last_issued,
+                "badly constructed data segment: there is a gap"
+            );
+
+            let data = self.canonical.get(&tok.0).unwrap_or_else(|| {
+                panic!(
+                    "failed to get token {}: by construction, data should be here",
+                    tok.0
+                )
+            });
+
+            assert_eq!(
+                data.len(),
+                (range.1 - range.0) as usize,
+                "invalid range provided by token map: data has {:#x?} B but the range has {:#x?} B",
+                data.len(),
+                range.1 - range.0
+            );
+            data_map.insert(range, data.clone());
+            last_issued = range.1;
+        }
+
+        data_map
+    }
+
     pub(crate) fn destructure(
         &mut self,
         token_map: BTreeMap<DedupToken, (u64, u64)>,
