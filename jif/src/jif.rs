@@ -204,9 +204,16 @@ impl Jif {
 
     /// Add a new ordering section
     pub fn add_ordering_info(&mut self, ordering_info: Vec<OrdChunk>) -> JifResult<()> {
+        let mut unique_addrs: HashSet<u64> = ordering_info.iter().map(|x| x.addr()).collect();
+
         self.ord_chunks = ordering_info
             .into_iter()
-            .filter(|chunk| !chunk.is_empty())
+            .filter_map(|chunk| {
+                (!chunk.is_empty() && unique_addrs.contains(&chunk.addr())).then(|| {
+                    unique_addrs.remove(&chunk.addr());
+                    chunk
+                })
+            })
             .inspect(|chunk| {
                 self.mapping_pheader_idx(chunk.vaddr)
                     .unwrap_or_else(|| panic!("bad ord chunk {}", chunk.vaddr));
