@@ -847,31 +847,37 @@ pub(crate) mod test {
                 vaddr: 0x10000,
                 n_pages: 1,
                 kind: DataSource::Zero,
+                is_written_to: false,
             },
             OrdChunk {
                 vaddr: 0x7000,
                 n_pages: 1,
                 kind: DataSource::Zero,
+                is_written_to: false,
             },
             OrdChunk {
                 vaddr: 0x8000,
                 n_pages: 1,
                 kind: DataSource::Zero,
+                is_written_to: false,
             },
             OrdChunk {
                 vaddr: 0x6000,
                 n_pages: 1,
                 kind: DataSource::Zero,
+                is_written_to: false,
             },
             OrdChunk {
                 vaddr: 0x3000,
                 n_pages: 2,
                 kind: DataSource::Zero,
+                is_written_to: false,
             },
             OrdChunk {
                 vaddr: 0x1000,
                 n_pages: 1,
                 kind: DataSource::Zero,
+                is_written_to: false,
             },
         ];
 

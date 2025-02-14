@@ -7,6 +7,7 @@ pub const ORD_SHARED_FLAG: u64 = 1 << 63;
 pub const ORD_PRIVATE_FLAG: u64 = 1 << 62;
 pub const ORD_ZERO_FLAG: u64 = 1 << 61;
 pub const ORD_FLAG_MASK: u64 = ORD_ZERO_FLAG - 1;
+pub const ORD_FLAG_WRITE: u64 = 1 << 60;
 
 /// An ordering chunk represents a range of pages to pre-fault
 #[derive(PartialEq, Eq, Copy, Clone)]
@@ -17,7 +18,11 @@ pub struct OrdChunk {
     /// Number of pages
     pub(crate) n_pages: u64,
 
+    /// Source of the interval in the chunk
     pub(crate) kind: DataSource,
+
+    /// Whether the page is written to at some point
+    pub(crate) is_written_to: bool,
 }
 
 impl OrdChunk {
@@ -30,12 +35,13 @@ impl OrdChunk {
     ///
     /// Will silently clamp the `vaddr`
     pub fn new(vaddr: u64, n_pages: u64, kind: DataSource) -> Self {
+        let is_written_to = (vaddr & ORD_FLAG_WRITE) != 0;
+        let vaddr = page_align_down(vaddr) & !ORD_FLAG_WRITE;
         OrdChunk {
-            vaddr: page_align_down(vaddr),
-
+            vaddr,
             n_pages,
-
             kind,
+            is_written_to,
         }
     }
 
@@ -142,7 +148,8 @@ mod test {
             OrdChunk {
                 vaddr: 0x1000,
                 n_pages: 0,
-                kind: DataSource::Zero
+                kind: DataSource::Zero,
+                is_written_to: false,
             }
         );
         assert!(ord.is_empty());
@@ -156,7 +163,8 @@ mod test {
             OrdChunk {
                 vaddr: 0x1000,
                 n_pages: 1,
-                kind: DataSource::Zero
+                kind: DataSource::Zero,
+                is_written_to: false,
             }
         );
         assert!(!ord.is_empty());
@@ -171,7 +179,8 @@ mod test {
             OrdChunk {
                 vaddr: 0x1000,
                 n_pages: 10,
-                kind: DataSource::Zero
+                kind: DataSource::Zero,
+                is_written_to: false,
             }
         );
         assert!(!ord.is_empty());

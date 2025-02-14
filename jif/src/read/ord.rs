@@ -1,6 +1,6 @@
 use crate::error::*;
 use crate::itree::interval::DataSource;
-use crate::ord::OrdChunk;
+use crate::ord::{OrdChunk, ORD_FLAG_WRITE};
 use crate::ord::{ORD_FLAG_MASK, ORD_PRIVATE_FLAG, ORD_SHARED_FLAG, ORD_ZERO_FLAG};
 use crate::utils::{is_page_aligned, read_u64};
 use std::io::Read;
@@ -13,6 +13,8 @@ impl OrdChunk {
         if !is_page_aligned(vaddr) {
             return Err(OrdChunkError::BadAlignment(vaddr));
         }
+
+        let write_first = (vaddr & ORD_FLAG_WRITE) != 0;
 
         let kind = match vaddr & !ORD_FLAG_MASK {
             ORD_ZERO_FLAG => DataSource::Zero,
@@ -30,6 +32,7 @@ impl OrdChunk {
             vaddr: vaddr & ORD_FLAG_MASK,
             n_pages,
             kind,
+            is_written_to: write_first,
         })
     }
 }

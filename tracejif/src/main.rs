@@ -34,24 +34,32 @@ struct Cli {
 /// Print the trace
 fn print_trace(jif: &Jif, tsa: &[TimestampedAccess]) {
     for entry in tsa {
-        let data_source = match jif.resolve(entry.addr as u64).map(|ival| ival.source) {
+        let data_source = match jif
+            .resolve(entry.masked_addr() as u64)
+            .map(|ival| ival.source)
+        {
             Some(DataSource::Zero) => "zero",
             Some(DataSource::Private) => "private",
             Some(DataSource::Shared) => "shared",
             None => "unknown",
         };
-        if let Some(pheader) = jif.mapping_pheader(entry.addr as u64) {
+        if let Some(pheader) = jif.mapping_pheader(entry.masked_addr() as u64) {
             println!(
                 "{}: {:#x?} | {:#x?}-{:#x?} | {} | {}",
                 entry.usecs,
-                entry.addr,
+                entry.masked_addr(),
                 pheader.virtual_range().0,
                 pheader.virtual_range().1,
                 pheader.pathname().unwrap_or("<unnamed>"),
                 data_source
             );
         } else {
-            println!("{}: {:#x?} | {}", entry.usecs, entry.addr, data_source);
+            println!(
+                "{}: {:#x?} | {}",
+                entry.usecs,
+                entry.masked_addr(),
+                data_source
+            );
         }
     }
 }

@@ -32,7 +32,7 @@ pub fn dedup_and_sort_by_addr(log: Vec<TimestampedAccess>) -> Vec<TimestampedAcc
         tsa
     }) {
         // keep the most recent entry
-        map.entry(tsa.addr)
+        map.entry(tsa.raw_addr())
             .and_modify(|existing| {
                 if tsa < *existing {
                     *existing = tsa
@@ -42,7 +42,7 @@ pub fn dedup_and_sort_by_addr(log: Vec<TimestampedAccess>) -> Vec<TimestampedAcc
     }
 
     let mut log = map.into_values().collect::<Vec<_>>();
-    log.sort_by_key(|tsa| tsa.addr);
+    log.sort_by_key(|tsa| tsa.raw_addr());
 
     log
 }

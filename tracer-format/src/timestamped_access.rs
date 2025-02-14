@@ -6,13 +6,29 @@ use std::str::FromStr;
 #[derive(Debug, Copy, Clone)]
 pub struct TimestampedAccess {
     pub usecs: usize,
-    pub addr: usize,
+    pub(crate) addr: usize,
 }
 
 impl TimestampedAccess {
-    // make addr page aligned (we only care about pages when prefetching)
+    const ORD_FLAG_WRITE: usize = (1 << 60);
+
+    /// make addr page aligned (we only care about pages when prefetching)
     pub fn truncate_addr(&mut self) {
         self.addr &= !0xfff;
+    }
+
+    /// return the raw address (even if it has certain metadata bits turned on)
+    pub fn raw_addr(&self) -> usize {
+        self.addr
+    }
+
+    /// return the actual memory address
+    pub fn masked_addr(&self) -> usize {
+        self.addr & !Self::ORD_FLAG_WRITE
+    }
+
+    pub fn is_raw(&self) -> bool {
+        (self.addr & Self::ORD_FLAG_WRITE) != 0
     }
 }
 
