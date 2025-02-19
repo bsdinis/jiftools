@@ -513,19 +513,25 @@ impl JifRaw {
             s
         };
 
+        // Break ordering chunks by intervals
+        let mut ord_chunks: Vec<OrdChunk> = jif
+            .ord_chunks
+            .iter()
+            .flat_map(|x| x.split_by_intervals(&jif).into_iter())
+            .collect();
+
         // Sort chunks by kind.
-        jif.ord_chunks.sort_by_key(|c| match c.kind {
+        ord_chunks.sort_by_key(|c| match c.kind {
             DataSource::Private => 0,
             DataSource::Zero => 1,
             DataSource::Shared => 2,
         });
 
         // Sort write chunks ahead
-        jif.ord_chunks
-            .sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
+        ord_chunks.sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
 
         let (token_map, itree_nodes, n_prefetch, n_write_prefetch) =
-            Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
+            Self::order_data_segments(itree_nodes, &ord_chunks, data_offset);
         let data_segments = jif.deduper.write().unwrap().destructure(token_map);
 
         // clamp n_prefetch if prefetching has not been set up
@@ -535,7 +541,7 @@ impl JifRaw {
             pheaders,
             strings_backing,
             itree_nodes,
-            ord_chunks: jif.ord_chunks,
+            ord_chunks,
             data_offset,
             data_segments,
             n_total_prefetch,

@@ -123,6 +123,30 @@ impl OrdChunk {
             false
         }
     }
+
+    pub(crate) fn split_by_intervals(&self, jif: &Jif) -> Vec<OrdChunk> {
+        let mut cursor = self.vaddr;
+        let mut ords = Vec::new();
+        while cursor < self.last_page_addr() {
+            let head = cursor;
+            while cursor < self.last_page_addr() && jif.resolve(head) == jif.resolve(cursor) {
+                cursor += PAGE_SIZE as u64;
+            }
+
+            let kind = jif
+                .resolve(head)
+                .expect("existing ord chunks should be mapped")
+                .source;
+            ords.push(OrdChunk {
+                vaddr: head,
+                n_pages: (cursor - head) / PAGE_SIZE as u64,
+                kind,
+                is_written_to: self.is_written_to,
+            });
+        }
+
+        ords
+    }
 }
 
 impl std::fmt::Debug for OrdChunk {
