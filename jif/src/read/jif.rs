@@ -136,7 +136,8 @@ impl JifRaw {
             ord_chunks,
             data_offset,
             data_segments,
-            n_prefetch: header.n_prefetch,
+            n_write_prefetch: header.n_write_prefetch,
+            n_total_prefetch: header.n_total_prefetch,
         })
     }
 }
@@ -147,7 +148,8 @@ struct JifHeader {
     strings_size: u32,
     itrees_size: u32,
     ord_size: u32,
-    n_prefetch: u64,
+    n_write_prefetch: u64,
+    n_total_prefetch: u64,
 }
 
 impl JifHeader {
@@ -183,14 +185,16 @@ impl JifHeader {
         }
 
         let mut buffer = [0u8; 8];
-        let n_prefetch = read_u64(r, &mut buffer)?;
+        let n_write_prefetch = read_u64(r, &mut buffer)?;
+        let n_total_prefetch = read_u64(r, &mut buffer)?;
 
         Ok(JifHeader {
             n_pheaders,
             strings_size,
             itrees_size,
             ord_size,
-            n_prefetch,
+            n_write_prefetch,
+            n_total_prefetch,
         })
     }
 }

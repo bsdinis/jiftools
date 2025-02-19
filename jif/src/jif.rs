@@ -21,7 +21,7 @@ use std::str::from_utf8;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
-pub(crate) const JIF_VERSION: u32 = 2;
+pub(crate) const JIF_VERSION: u32 = 3;
 
 /// The materialized view over the JIF file
 ///
@@ -43,7 +43,8 @@ pub struct JifRaw {
     pub(crate) strings_backing: Vec<u8>,
     pub(crate) itree_nodes: Vec<RawITreeNode>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
-    pub(crate) n_prefetch: u64,
+    pub(crate) n_total_prefetch: u64,
+    pub(crate) n_write_prefetch: u64,
     pub(crate) data_offset: u64,
     pub(crate) data_segments: BTreeMap<(u64, u64), Vec<u8>>,
 }
@@ -57,7 +58,8 @@ pub struct JifHeaderBinary {
     itrees_size: u32,
     ord_size: u32,
     version: u32,
-    n_prefetch: u64,
+    n_write_prefetch: u64,
+    n_total_prefetch: u64,
 }
 
 impl Jif {
@@ -78,7 +80,7 @@ impl Jif {
             pheaders,
             ord_chunks: raw.ord_chunks,
             deduper,
-            prefetch: raw.n_prefetch > 0,
+            prefetch: raw.n_total_prefetch > 0,
         })
     }
 
@@ -375,7 +377,12 @@ impl JifRaw {
         itree_nodes: Vec<IntermediateITreeNode>,
         ord_chunks: &[OrdChunk],
         mut data_offset: u64,
-    ) -> (BTreeMap<DedupToken, (u64, u64)>, Vec<RawITreeNode>, u64) {
+    ) -> (
+        BTreeMap<DedupToken, (u64, u64)>,
+        Vec<RawITreeNode>,
+        u64,
+        u64,
+    ) {
         // Vec of (Interval, <has been serialized>)
         let mut intervals = {
             let mut v = itree_nodes
@@ -390,7 +397,8 @@ impl JifRaw {
         // map from token to range of data offsets in the file
         let mut token_map = BTreeMap::new();
         let mut raw_intervals = BTreeMap::new();
-        let mut prefetch_pages = 0;
+        let mut n_total_prefetch = 0;
+        let mut n_write_prefetch = 0;
 
         for chunk in ord_chunks {
             // if an ordering chunk is not found it is ignored
@@ -418,7 +426,11 @@ impl JifRaw {
 
                 raw_intervals.insert((new_interval.start, new_interval.end), new_interval);
 
-                prefetch_pages += (new_interval.end - new_interval.start) / PAGE_SIZE as u64;
+                let chunk_size = (new_interval.end - new_interval.start) / PAGE_SIZE as u64;
+                n_total_prefetch += chunk_size;
+                if chunk.is_written_to {
+                    n_write_prefetch += chunk_size;
+                }
             }
         }
 
@@ -434,7 +446,12 @@ impl JifRaw {
             .map(|itree_node| RawITreeNode::from_intermediate(itree_node, &mut raw_intervals))
             .collect();
 
-        (token_map, raw_itree_nodes, prefetch_pages)
+        (
+            token_map,
+            raw_itree_nodes,
+            n_total_prefetch,
+            n_write_prefetch,
+        )
     }
 
     /// Construct a raw JIF from a materialized one
@@ -498,17 +515,21 @@ impl JifRaw {
 
         // Sort chunks by kind.
         jif.ord_chunks.sort_by_key(|c| match c.kind {
+            DataSource::Private => 0,
             DataSource::Zero => 1,
             DataSource::Shared => 2,
-            DataSource::Private => 0,
         });
 
-        let (token_map, itree_nodes, n_prefetch) =
+        // Sort write chunks ahead
+        jif.ord_chunks
+            .sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
+
+        let (token_map, itree_nodes, n_prefetch, n_write_prefetch) =
             Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
         let data_segments = jif.deduper.write().unwrap().destructure(token_map);
 
         // clamp n_prefetch if prefetching has not been set up
-        let n_prefetch = if jif.prefetch { n_prefetch } else { 0 };
+        let n_total_prefetch = if jif.prefetch { n_prefetch } else { 0 };
 
         JifRaw {
             pheaders,
@@ -517,7 +538,8 @@ impl JifRaw {
             ord_chunks: jif.ord_chunks,
             data_offset,
             data_segments,
-            n_prefetch,
+            n_total_prefetch,
+            n_write_prefetch,
         }
     }
 
@@ -587,12 +609,12 @@ impl JifRaw {
             DataSource::Private => 0,
         });
 
-        let (token_map, itree_nodes, n_prefetch) =
+        let (token_map, itree_nodes, n_prefetch, n_write_prefetch) =
             Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
         let data_segments = jif.deduper.read().unwrap().clone_segments(token_map);
 
         // clamp n_prefetch if prefetching has not been set up
-        let n_prefetch = if jif.prefetch { n_prefetch } else { 0 };
+        let n_total_prefetch = if jif.prefetch { n_prefetch } else { 0 };
 
         JifRaw {
             pheaders,
@@ -601,7 +623,8 @@ impl JifRaw {
             ord_chunks: jif.ord_chunks.clone(),
             data_offset,
             data_segments,
-            n_prefetch,
+            n_total_prefetch,
+            n_write_prefetch,
         }
     }
 
@@ -759,7 +782,8 @@ impl std::fmt::Debug for JifRaw {
             .field("strings", &strings)
             .field("itrees", &self.itree_nodes)
             .field("ord", &self.ord_chunks)
-            .field("n_prefetch", &self.n_prefetch)
+            .field("n_write_prefetch", &self.n_write_prefetch)
+            .field("n_total_prefetch", &self.n_total_prefetch)
             .field(
                 "data_range",
                 &format!(
@@ -792,7 +816,8 @@ pub(crate) mod test {
 
     #[test]
     fn test_order_segments_empty() {
-        let (token_map, itree_nodes, _n_prefetch) = JifRaw::order_data_segments(vec![], &[], 0);
+        let (token_map, itree_nodes, _n_prefetch, _n_write_prefetch) =
+            JifRaw::order_data_segments(vec![], &[], 0);
         assert!(token_map.is_empty());
         assert!(itree_nodes.is_empty());
     }
@@ -882,7 +907,7 @@ pub(crate) mod test {
         ];
 
         // 3: call order_data_segments
-        let (token_map, itree_nodes, _n_prefetch) =
+        let (token_map, itree_nodes, _n_total_prefetch, _n_write_prefetch) =
             JifRaw::order_data_segments(intermediate_nodes, &ord_chunks, 0);
 
         // 4: check order

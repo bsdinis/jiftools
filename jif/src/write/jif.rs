@@ -40,7 +40,8 @@ impl JifRaw {
         w.write_all(&itrees_size.to_le_bytes())?;
         w.write_all(&ord_size.to_le_bytes())?;
         w.write_all(&JIF_VERSION.to_le_bytes())?;
-        w.write_all(&self.n_prefetch.to_le_bytes())?;
+        w.write_all(&self.n_write_prefetch.to_le_bytes())?;
+        w.write_all(&self.n_total_prefetch.to_le_bytes())?;
 
         cursor += std::mem::size_of::<JifHeaderBinary>();
 
