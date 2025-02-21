@@ -22,8 +22,8 @@ pub fn read_trace<BR: BufRead>(reader: BR) -> Result<Vec<TimestampedAccess>, Tra
         .collect::<Result<Vec<_>, _>>()
 }
 
-/// Dedup and sort a trace
-pub fn dedup_and_sort_by_addr(log: Vec<TimestampedAccess>) -> Vec<TimestampedAccess> {
+/// Dedup a trace
+pub fn dedup_trace(log: Vec<TimestampedAccess>) -> Vec<TimestampedAccess> {
     // deduping:
     // construct an addr -> access hashmap map, where we keep only the first access
     let mut map = HashMap::with_capacity(log.len());
@@ -41,14 +41,13 @@ pub fn dedup_and_sort_by_addr(log: Vec<TimestampedAccess>) -> Vec<TimestampedAcc
             .or_insert(tsa);
     }
 
-    let mut log = map.into_values().collect::<Vec<_>>();
-    log.sort_by_key(|tsa| tsa.raw_addr());
-
-    log
+    map.into_values().collect::<Vec<_>>()
 }
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
+
     use crate::ParseTimestampedAccessError;
 
     use super::*;
@@ -128,7 +127,7 @@ mod test {
     }
 
     #[test]
-    fn dedup_and_sort_0() {
+    fn dedup_0() {
         let original = vec![
             TimestampedAccess {
                 usecs: 1,
@@ -145,8 +144,8 @@ mod test {
         ];
 
         assert_eq!(
-            dedup_and_sort_by_addr(original),
-            vec![
+            dedup_trace(original).into_iter().collect::<HashSet<_>>(),
+            [
                 TimestampedAccess {
                     usecs: 1,
                     addr: 0x1000
@@ -160,10 +159,13 @@ mod test {
                     addr: 0x3000
                 },
             ]
+            .into_iter()
+            .collect::<HashSet<_>>()
         )
     }
+
     #[test]
-    fn dedup_and_sort_1() {
+    fn dedup_1() {
         let original = vec![
             TimestampedAccess {
                 usecs: 1,
@@ -188,8 +190,8 @@ mod test {
         ];
 
         assert_eq!(
-            dedup_and_sort_by_addr(original),
-            vec![
+            dedup_trace(original).into_iter().collect::<HashSet<_>>(),
+            [
                 TimestampedAccess {
                     usecs: 1,
                     addr: 0x1000
@@ -203,6 +205,8 @@ mod test {
                     addr: 0x3000
                 },
             ]
+            .into_iter()
+            .collect::<HashSet<_>>()
         )
     }
 }

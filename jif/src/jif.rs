@@ -21,7 +21,7 @@ use std::str::from_utf8;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
-pub(crate) const JIF_VERSION: u32 = 3;
+pub(crate) const JIF_VERSION: u32 = 4;
 
 /// The materialized view over the JIF file
 ///
@@ -205,22 +205,18 @@ impl Jif {
     }
 
     /// Add a new ordering section
-    pub fn add_ordering_info(&mut self, ordering_info: Vec<OrdChunk>) -> JifResult<()> {
-        let mut unique_addrs: HashSet<u64> = ordering_info.iter().map(|x| x.addr()).collect();
+    pub fn add_ordering_info(&mut self, mut ordering_info: Vec<OrdChunk>) -> JifResult<()> {
+        ordering_info.sort_by_key(|o| o.addr());
+        ordering_info.dedup();
+        ordering_info.iter().for_each(|chunk| {
+            assert!(!chunk.is_empty(), "trying to add an empty chunk: {chunk:?}");
+        });
+        ordering_info.iter().for_each(|chunk| {
+            self.mapping_pheader_idx(chunk.vaddr)
+                .unwrap_or_else(|| panic!("ord chunk is not mapped by JIF {:x?}", chunk.vaddr));
+        });
 
-        self.ord_chunks = ordering_info
-            .into_iter()
-            .filter_map(|chunk| {
-                (!chunk.is_empty() && unique_addrs.contains(&chunk.addr())).then(|| {
-                    unique_addrs.remove(&chunk.addr());
-                    chunk
-                })
-            })
-            .inspect(|chunk| {
-                self.mapping_pheader_idx(chunk.vaddr)
-                    .unwrap_or_else(|| panic!("bad ord chunk {}", chunk.vaddr));
-            })
-            .collect();
+        self.ord_chunks = ordering_info;
         Ok(())
     }
 
@@ -513,26 +509,38 @@ impl JifRaw {
             s
         };
 
-        // Break ordering chunks by intervals
         let mut ord_chunks: Vec<OrdChunk> = jif
             .ord_chunks
             .iter()
             .flat_map(|x| x.split_by_intervals(&jif).into_iter())
             .collect();
 
-        // Sort chunks by kind.
-        ord_chunks.sort_by_key(|c| match c.kind {
-            DataSource::Private => 0,
-            DataSource::Zero => 1,
-            DataSource::Shared => 2,
-        });
+        // Data is layed out differently depending on whether prefetch is set up or not
+        // If prefetch is not set up, both ordering chunks and data are ordered by timestamp
+        // If prefetch is set up, we partition the private data in two partitions
+        //  - the first partition has the pages that are written to
+        //  - the second partition has the pages that are not written to
+        //  Both partitions are ordered by address internally
+        //  The ordering section, however, is totally ordered by address only
 
-        // Sort write chunks ahead
-        ord_chunks.sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
+        // define data ordering
+        if jif.prefetch {
+            ord_chunks.sort_by_key(|c| c.addr());
+            ord_chunks.sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
+        } else {
+            ord_chunks.sort_by_key(|c| c.timestamp_us);
+        }
 
         let (token_map, itree_nodes, n_prefetch, n_write_prefetch) =
             Self::order_data_segments(itree_nodes, &ord_chunks, data_offset);
         let data_segments = jif.deduper.write().unwrap().destructure(token_map);
+
+        // After the jif data has been sorted into the read/write partitions, we re-order the
+        // ordering chunks by address.
+        // This allows for a single VMA lookup on prefetch (per VMA)
+        if jif.prefetch {
+            ord_chunks.sort_by_key(|c| c.addr());
+        }
 
         // clamp n_prefetch if prefetching has not been set up
         let n_total_prefetch = if jif.prefetch { n_prefetch } else { 0 };
@@ -875,36 +883,42 @@ pub(crate) mod test {
         // 2: create some ordering segments (make sure they aren't bad)
         let ord_chunks = [
             OrdChunk {
+                timestamp_us: 0,
                 vaddr: 0x10000,
                 n_pages: 1,
                 kind: DataSource::Zero,
                 is_written_to: false,
             },
             OrdChunk {
+                timestamp_us: 0,
                 vaddr: 0x7000,
                 n_pages: 1,
                 kind: DataSource::Zero,
                 is_written_to: false,
             },
             OrdChunk {
+                timestamp_us: 0,
                 vaddr: 0x8000,
                 n_pages: 1,
                 kind: DataSource::Zero,
                 is_written_to: false,
             },
             OrdChunk {
+                timestamp_us: 0,
                 vaddr: 0x6000,
                 n_pages: 1,
                 kind: DataSource::Zero,
                 is_written_to: false,
             },
             OrdChunk {
+                timestamp_us: 0,
                 vaddr: 0x3000,
                 n_pages: 2,
                 kind: DataSource::Zero,
                 is_written_to: false,
             },
             OrdChunk {
+                timestamp_us: 0,
                 vaddr: 0x1000,
                 n_pages: 1,
                 kind: DataSource::Zero,

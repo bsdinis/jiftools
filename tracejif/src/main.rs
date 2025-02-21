@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
         let file = BufReader::new(File::open(cli.ord_file).context("failed to open ord list")?);
         let trace = read_trace(file).context("failed to read the trace")?;
 
-        Ok::<Vec<TimestampedAccess>, anyhow::Error>(dedup_and_sort_by_addr(trace))
+        Ok::<Vec<TimestampedAccess>, anyhow::Error>(dedup_trace(trace))
     }?;
 
     print_trace(&jif, &trace);

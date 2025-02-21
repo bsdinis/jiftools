@@ -10,7 +10,7 @@
 //! $ jiftool orig.jif ordered.jif add-ord tsa.ord # add an ordering section
 //! ```
 use jif::*;
-use tracer_format::{dedup_and_sort_by_addr, read_trace};
+use tracer_format::{dedup_trace, read_trace};
 
 use anyhow::Context;
 use clap::Parser;
@@ -136,7 +136,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                let tsa_log = dedup_and_sort_by_addr(tsa_log);
+                let tsa_log = dedup_trace(tsa_log);
                 let ords = construct_ord_chunks(&jif, tsa_log);
 
                 jif.add_ordering_info(ords)?;

@@ -3,14 +3,15 @@ use crate::error::ParseTimestampedAccessError;
 use std::str::FromStr;
 
 /// Representation of an entry in the log of recorded adresses in a Junction tracer output
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct TimestampedAccess {
     pub usecs: usize,
     pub(crate) addr: usize,
 }
 
 impl TimestampedAccess {
-    const ORD_FLAG_WRITE: usize = (1 << 60);
+    const ORD_WRITE_FLAG: usize = (1 << 60);
+    const ORD_FLAG_MASK: usize = Self::ORD_WRITE_FLAG - 1;
 
     /// make addr page aligned (we only care about pages when prefetching)
     pub fn truncate_addr(&mut self) {
@@ -24,20 +25,9 @@ impl TimestampedAccess {
 
     /// return the actual memory address
     pub fn masked_addr(&self) -> usize {
-        self.addr & !Self::ORD_FLAG_WRITE
-    }
-
-    pub fn is_raw(&self) -> bool {
-        (self.addr & Self::ORD_FLAG_WRITE) != 0
+        self.addr & Self::ORD_FLAG_MASK
     }
 }
-
-impl PartialEq for TimestampedAccess {
-    fn eq(&self, other: &Self) -> bool {
-        self.usecs == other.usecs && self.addr == other.addr
-    }
-}
-impl Eq for TimestampedAccess {}
 
 impl PartialOrd for TimestampedAccess {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
