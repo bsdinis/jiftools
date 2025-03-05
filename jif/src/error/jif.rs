@@ -7,6 +7,7 @@ use crate::error::itree_node::ITreeNodeError;
 use crate::error::ord::OrdChunkError;
 use crate::error::pheader::PheaderError;
 use crate::jif::JIF_MAGIC_HEADER;
+use crate::ord::OrdChunk;
 
 /// JIF result type
 pub type JifResult<T> = core::result::Result<T, JifError>;
@@ -61,6 +62,9 @@ pub enum JifError {
         /// Data length found
         found_len: usize,
     },
+
+    /// Ord chunk not mapped
+    OrdChunkNotMapped(OrdChunk),
 
     /// Could not find an itree
     ITreeNotFound {
@@ -149,6 +153,7 @@ impl std::fmt::Display for JifError {
                 "could not find full interval tree at [{}; {}) (there are only {} itree nodes)",
                 index, len, n_nodes
             )),
+            JifError::OrdChunkNotMapped(ord) => f.write_fmt(format_args!("ordering chunk {ord:?} is not mapped by the JIF file")),
         }
     }
 }
@@ -168,6 +173,7 @@ impl std::error::Error for JifError {
             JifError::DataSegmentNotFound { .. } => None,
             JifError::Fracture { .. } => None,
             JifError::ITreeNotFound { .. } => None,
+            JifError::OrdChunkNotMapped(_) => None,
         }
     }
 }

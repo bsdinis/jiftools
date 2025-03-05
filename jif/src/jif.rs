@@ -14,7 +14,7 @@ use crate::{error::*, Prot};
 
 use rayon::prelude::*;
 
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufReader, Read, Seek, Write};
 use std::str::from_utf8;
@@ -205,18 +205,47 @@ impl Jif {
     }
 
     /// Add a new ordering section
-    pub fn add_ordering_info(&mut self, mut ordering_info: Vec<OrdChunk>) -> JifResult<()> {
-        ordering_info.sort_by_key(|o| o.addr());
-        ordering_info.dedup();
-        ordering_info.iter().for_each(|chunk| {
-            assert!(!chunk.is_empty(), "trying to add an empty chunk: {chunk:?}");
-        });
-        ordering_info.iter().for_each(|chunk| {
-            self.mapping_pheader_idx(chunk.vaddr)
-                .unwrap_or_else(|| panic!("ord chunk is not mapped by JIF {:x?}", chunk.vaddr));
-        });
+    pub fn add_ordering_info(&mut self, ordering_info: Vec<OrdChunk>) -> JifResult<()> {
+        // dedup entries with the same address:
+        //  - prioritize writes
+        //  - keep lowest timestamp
+        let mut ords = BTreeMap::new();
+        for ord in ordering_info {
+            ords.entry(ord.addr())
+                .and_modify(|x: &mut OrdChunk| {
+                    x.is_written_to |= ord.is_written_to;
+                    x.timestamp_us = min(x.timestamp_us, ord.timestamp_us);
+                })
+                .or_insert(ord);
+        }
 
-        self.ord_chunks = ordering_info;
+        ords.iter()
+            .find(|(addr, _ord)| self.resolve(**addr).is_none())
+            .map_or(Ok(()), |(_addr, ord)| {
+                Err(JifError::OrdChunkNotMapped(*ord))
+            })?;
+
+        // merge chunks
+        let mut chunks = Vec::with_capacity(ords.len());
+        let mut mergeable_chunk = OrdChunk::new(0, 0, 0, DataSource::Zero);
+        for (_addr, chunk) in ords {
+            if !mergeable_chunk.merge_page(self, chunk) {
+                // we couldn't merge, push
+                assert!(
+                    !mergeable_chunk.is_empty(),
+                    "trying to add an empty chunk: {mergeable_chunk:?}"
+                );
+                assert!(
+                    self.mapping_pheader_idx(mergeable_chunk.addr()).is_some(),
+                    "trying to add a chunk that is not mapped by JIF {mergeable_chunk:?}"
+                );
+                chunks.push(mergeable_chunk);
+
+                mergeable_chunk = chunk;
+            }
+        }
+
+        self.ord_chunks = chunks;
         Ok(())
     }
 

@@ -102,44 +102,40 @@ impl OrdChunk {
     ///  - **and** they are serviced by the same pheader
     ///
     /// Return false if it is not possible to merge the page
-    pub fn merge_page(&mut self, jif: &Jif, timestamp_us: u64, raw_vaddr: u64) -> bool {
-        let vaddr = Self::sanitize_addr(raw_vaddr);
-        let is_written_to = Self::raw_addr_written_to(raw_vaddr);
-
+    pub fn merge_page(&mut self, jif: &Jif, other: OrdChunk) -> bool {
         if self.n_pages == 0 {
-            self.vaddr = vaddr;
-            self.n_pages = 1;
-            self.is_written_to = is_written_to;
+            *self = other;
             return true;
         }
 
         // we can only merge addresses if they have the same write behaviour
-        if is_written_to != self.is_written_to {
+        if other.is_written_to != self.is_written_to {
             return false;
         }
 
         // we can only merge if the addresses belong in the same itree
         // interval (logically) and, consequently, in the same pheader
-        if jif.resolve(vaddr) != jif.resolve(self.vaddr) {
+        if jif.resolve(other.vaddr) != jif.resolve(self.vaddr) {
             return false;
         }
 
-        if vaddr == self.vaddr - PAGE_SIZE as u64 {
+        if other.vaddr == self.vaddr - PAGE_SIZE as u64 {
             // if the page is immediately before the ordering chunk
-
-            self.vaddr = vaddr;
+            self.vaddr = other.vaddr;
             self.n_pages += 1;
-            self.timestamp_us = std::cmp::min(self.timestamp_us, timestamp_us);
+            self.timestamp_us = std::cmp::min(self.timestamp_us, other.timestamp_us);
             true
-        } else if vaddr == self.vaddr + (self.n_pages * PAGE_SIZE as u64) {
+        } else if other.vaddr == self.vaddr + (self.n_pages * PAGE_SIZE as u64) {
             // if the page is immediately after the ordering chunk
 
             self.n_pages += 1;
-            self.timestamp_us = std::cmp::min(self.timestamp_us, timestamp_us);
+            self.timestamp_us = std::cmp::min(self.timestamp_us, other.timestamp_us);
             true
-        } else if self.vaddr <= vaddr && vaddr < self.vaddr + (self.n_pages * PAGE_SIZE as u64) {
+        } else if self.vaddr <= other.vaddr
+            && other.vaddr < self.vaddr + (self.n_pages * PAGE_SIZE as u64)
+        {
             // if the page is already in the ordering chunk
-            self.timestamp_us = std::cmp::min(self.timestamp_us, timestamp_us);
+            self.timestamp_us = std::cmp::min(self.timestamp_us, other.timestamp_us);
             true
         } else {
             false
@@ -239,6 +235,10 @@ mod test {
         assert_eq!(ord.last_page_addr(), 0xa000);
     }
 
+    fn ord_fn(timestamp_us: u64, vaddr: u64) -> OrdChunk {
+        OrdChunk::new(timestamp_us, vaddr, 1, DataSource::Zero)
+    }
+
     #[test]
     fn merge_diff_sources() {
         let jif = gen_jif(&[
@@ -249,28 +249,28 @@ mod test {
         {
             let mut ord = OrdChunk::new(0, 0x11000, 0x6, DataSource::Zero);
 
-            assert!(ord.merge_page(&jif, 0, 0x10000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x10000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0x7, DataSource::Zero));
 
-            assert!(ord.merge_page(&jif, 0, 0x17000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x17000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0x8, DataSource::Zero));
 
-            assert!(!ord.merge_page(&jif, 0, 0x1f000));
+            assert!(!ord.merge_page(&jif, ord_fn(0, 0x1f000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0x8, DataSource::Zero));
         }
 
         {
             let mut ord = OrdChunk::new(0, 0x19000, 0x6, DataSource::Zero);
 
-            assert!(ord.merge_page(&jif, 0, 0x18000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x18000)));
             assert_eq!(ord, OrdChunk::new(0, 0x18000, 0x7, DataSource::Zero));
 
-            assert!(!ord.merge_page(&jif, 0, 0x17000));
+            assert!(!ord.merge_page(&jif, ord_fn(0, 0x17000)));
 
-            assert!(ord.merge_page(&jif, 0, 0x1f000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x1f000)));
             assert_eq!(ord, OrdChunk::new(0, 0x18000, 0x8, DataSource::Zero));
 
-            assert!(!ord.merge_page(&jif, 0, 0x20000));
+            assert!(!ord.merge_page(&jif, ord_fn(0, 0x20000)));
         }
     }
 
@@ -281,16 +281,16 @@ mod test {
         {
             let mut ord = OrdChunk::new(0, 0x11000, 0xe, DataSource::Zero);
 
-            assert!(ord.merge_page(&jif, 0, 0x10000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x10000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0xf, DataSource::Zero));
 
-            assert!(ord.merge_page(&jif, 0, 0x17000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x17000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0xf, DataSource::Zero));
 
-            assert!(ord.merge_page(&jif, 0, 0x1f000));
+            assert!(ord.merge_page(&jif, ord_fn(0, 0x1f000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0x10, DataSource::Zero));
 
-            assert!(!ord.merge_page(&jif, 0, 0x20000));
+            assert!(!ord.merge_page(&jif, ord_fn(0, 0x20000)));
             assert_eq!(ord, OrdChunk::new(0, 0x10000, 0x10, DataSource::Zero));
         }
     }
@@ -302,16 +302,16 @@ mod test {
         {
             let mut ord = OrdChunk::new(100, 0x11000, 0xe, DataSource::Zero);
 
-            assert!(ord.merge_page(&jif, 150, 0x10000));
+            assert!(ord.merge_page(&jif, ord_fn(150, 0x10000)));
             assert_eq!(ord, OrdChunk::new(100, 0x10000, 0xf, DataSource::Zero));
 
-            assert!(ord.merge_page(&jif, 50, 0x17000));
+            assert!(ord.merge_page(&jif, ord_fn(50, 0x17000)));
             assert_eq!(ord, OrdChunk::new(50, 0x10000, 0xf, DataSource::Zero));
 
-            assert!(ord.merge_page(&jif, 100, 0x1f000));
+            assert!(ord.merge_page(&jif, ord_fn(100, 0x1f000)));
             assert_eq!(ord, OrdChunk::new(50, 0x10000, 0x10, DataSource::Zero));
 
-            assert!(!ord.merge_page(&jif, 0, 0x20000));
+            assert!(!ord.merge_page(&jif, ord_fn(0, 0x20000)));
             assert_eq!(ord, OrdChunk::new(50, 0x10000, 0x10, DataSource::Zero));
         }
     }
