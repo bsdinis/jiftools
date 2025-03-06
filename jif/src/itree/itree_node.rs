@@ -180,7 +180,7 @@ impl RawITreeNode {
             }
 
             *raw_interval = raw_intervals.remove(&(inter_interval.start, inter_interval.end))
-                .expect(&format!("cannot convert IntermediateInterval to RawInterval: `raw_intervals` is badly constructed: interval {:x?} is not present", inter_interval));
+                .unwrap_or_else(|| panic!("cannot convert IntermediateInterval to RawInterval: `raw_intervals` is badly constructed: interval {inter_interval:x?} is not present"));
         }
         raw
     }

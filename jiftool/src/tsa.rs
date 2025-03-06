@@ -8,10 +8,12 @@ fn to_ord_chunk(jif: &Jif, access: TimestampedAccess) -> OrdChunk {
         access.raw_addr() as u64,
         1,
         jif.resolve(access.masked_addr() as u64)
-            .expect(&format!(
-                "Warning: unresolved address in ordering data: {}",
-                access.masked_addr()
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Warning: unresolved address in ordering data: {}",
+                    access.masked_addr()
+                )
+            })
             .source,
     )
 }

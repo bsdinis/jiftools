@@ -398,6 +398,7 @@ impl JifRaw {
     ///  - intervals in [`ITree`]s are unique
     ///  - intervals don't overlap
     ///  - ordering chunks span only one interval
+    // TODO: simplify the return type, this is a bit too much
     pub(crate) fn order_data_segments(
         itree_nodes: Vec<IntermediateITreeNode>,
         ord_chunks: &[OrdChunk],
@@ -509,7 +510,7 @@ impl JifRaw {
             .iter()
             .map(|phdr| {
                 JifRawPheader::from_materialized(
-                    &phdr,
+                    phdr,
                     &string_map,
                     &mut itree_nodes,
                     &mut jif.deduper.write().unwrap(),

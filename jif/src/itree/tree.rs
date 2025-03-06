@@ -318,10 +318,12 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
         // no empty intervals
         {
             let d = deduper.read().unwrap();
-            assert!(intervals
-                .iter()
-                .filter(|x| x.is_data())
-                .all(|x| { x.data.get_data(&d).unwrap().as_ref().len() > 0 }));
+            assert!(intervals.iter().filter(|x| x.is_data()).all(|x| !x
+                .data
+                .get_data(&d)
+                .unwrap()
+                .as_ref()
+                .is_empty()));
         }
 
         for ival in self
