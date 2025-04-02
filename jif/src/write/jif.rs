@@ -1,6 +1,7 @@
 use crate::itree::itree_node::RawITreeNode;
-use crate::jif::{JifHeaderBinary, JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
+use crate::jif::{JifHeader, JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
 use crate::ord::OrdChunk;
+use crate::prefetch::PrefetchWindow;
 use crate::utils::{is_page_aligned, page_align, PAGE_SIZE};
 
 use std::io::Write;
@@ -30,33 +31,33 @@ impl JifRaw {
             page_align((self.itree_nodes.len() * RawITreeNode::serialized_size()) as u64) as u32;
         let ord_size =
             page_align((self.ord_chunks.len() * OrdChunk::serialized_size()) as u64) as u32;
+        let prefetch_size =
+            page_align((self.prefetch_windows.len() * PrefetchWindow::serialized_size()) as u64)
+                as u32;
 
         let mut cursor = 0;
 
         // dump header
         w.write_all(&JIF_MAGIC_HEADER)?;
+        w.write_all(&JIF_VERSION.to_le_bytes())?;
         w.write_all(&n_pheaders.to_le_bytes())?;
         w.write_all(&strings_size.to_le_bytes())?;
         w.write_all(&itrees_size.to_le_bytes())?;
         w.write_all(&ord_size.to_le_bytes())?;
-        w.write_all(&JIF_VERSION.to_le_bytes())?;
-        w.write_all(&self.n_write_prefetch.to_le_bytes())?;
-        w.write_all(&self.n_total_prefetch.to_le_bytes())?;
-
-        cursor += std::mem::size_of::<JifHeaderBinary>();
+        w.write_all(&prefetch_size.to_le_bytes())?;
+        self.windowing_strategy.to_writer(w)?;
+        cursor += JifHeader::serialized_size();
 
         // pheaders
         for pheader in &self.pheaders {
             cursor += pheader.to_writer(w)?;
         }
-
         let written = write_to_page_alignment(w, cursor, &zero_page)?;
         cursor += written;
 
         // strings
         w.write_all(&self.strings_backing)?;
         cursor += self.strings_backing.len();
-
         let written = write_to_page_alignment(w, cursor, &zero_page)?;
         cursor += written;
 
@@ -64,13 +65,19 @@ impl JifRaw {
         for node in &self.itree_nodes {
             cursor += node.to_writer(w)?;
         }
-
         let written = write_to_page_alignment(w, cursor, &ones_page)?;
         cursor += written;
 
         // ord chunks
         for ord in &self.ord_chunks {
             cursor += ord.to_writer(w)?;
+        }
+        let written = write_to_page_alignment(w, cursor, &zero_page)?;
+        cursor += written;
+
+        // prefetch windows
+        for prefetch_window in &self.prefetch_windows {
+            cursor += prefetch_window.to_writer(w)?;
         }
         let written = write_to_page_alignment(w, cursor, &zero_page)?;
         cursor += written;

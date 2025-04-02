@@ -6,8 +6,11 @@ use crate::error::itree::ITreeError;
 use crate::error::itree_node::ITreeNodeError;
 use crate::error::ord::OrdChunkError;
 use crate::error::pheader::PheaderError;
+use crate::error::prefetch::PrefetchWindowError;
 use crate::jif::JIF_MAGIC_HEADER;
 use crate::ord::OrdChunk;
+
+use super::WindowingStrategyError;
 
 /// JIF result type
 pub type JifResult<T> = core::result::Result<T, JifError>;
@@ -24,11 +27,8 @@ pub enum JifError {
     /// Ill-formed JIF header
     BadHeader,
 
-    // Version mismatch.
-    BadVersion {
-        expected: u32,
-        found: u32,
-    },
+    /// Version mismatch.
+    BadVersion { expected: u32, found: u32 },
 
     /// A particular section was poorly aligned
     BadAlignment,
@@ -50,6 +50,15 @@ pub enum JifError {
         ord_chunk_idx: usize,
         ord_chunk_err: OrdChunkError,
     },
+
+    /// Error with a prefetch window
+    BadPrefetchWindow {
+        prefetch_window_idx: usize,
+        prefetch_window_err: PrefetchWindowError,
+    },
+
+    /// Error with the windowing strategy
+    BadWindowingStrategy(WindowingStrategyError),
 
     /// Could not find a particular data segment mentioned by a particular virtual address range
     DataSegmentNotFound {
@@ -85,9 +94,7 @@ pub enum JifError {
     },
 
     /// Error fracturing an interval
-    Fracture {
-        ord_range: (u64, u64),
-    },
+    Fracture { ord_range: (u64, u64) },
 }
 
 impl std::fmt::Display for JifError {
@@ -120,6 +127,16 @@ impl std::fmt::Display for JifError {
             } => f.write_fmt(format_args!(
                 "bad ord chunk (idx = {}): {}",
                 ord_chunk_idx, ord_chunk_err
+            )),
+            JifError::BadPrefetchWindow {
+                prefetch_window_idx,
+                prefetch_window_err,
+            } => f.write_fmt(format_args!(
+                "bad prefetch window (idx = {}): {}",
+                prefetch_window_idx, prefetch_window_err
+            )),
+            JifError::BadWindowingStrategy(e) => f.write_fmt(format_args!(
+                "{e}",
             )),
             JifError::BadITreeNode {
                 itree_node_idx,
@@ -169,6 +186,11 @@ impl std::error::Error for JifError {
             JifError::BadPheader { pheader_err, .. } => Some(pheader_err),
             JifError::BadITreeNode { itree_node_err, .. } => Some(itree_node_err),
             JifError::BadOrdChunk { ord_chunk_err, .. } => Some(ord_chunk_err),
+            JifError::BadPrefetchWindow {
+                prefetch_window_err,
+                ..
+            } => Some(prefetch_window_err),
+            JifError::BadWindowingStrategy(e) => Some(e),
             JifError::InvalidITree { error, .. } => Some(error),
             JifError::DataSegmentNotFound { .. } => None,
             JifError::Fracture { .. } => None,

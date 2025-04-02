@@ -9,6 +9,7 @@ use crate::itree::itree_node::{ITreeNode, IntermediateITreeNode, RawITreeNode};
 use crate::itree::ITree;
 use crate::ord::OrdChunk;
 use crate::pheader::{JifPheader, JifRawPheader};
+use crate::prefetch::{PrefetchWindow, WindowingStrategy};
 use crate::utils::{page_align, PAGE_SIZE};
 use crate::{error::*, Prot};
 
@@ -21,7 +22,7 @@ use std::str::from_utf8;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 pub(crate) const JIF_MAGIC_HEADER: [u8; 4] = [0x77, b'J', b'I', b'F'];
-pub(crate) const JIF_VERSION: u32 = 4;
+pub(crate) const JIF_VERSION: u32 = 5;
 
 /// The materialized view over the JIF file
 ///
@@ -32,7 +33,7 @@ pub struct Jif {
     pub(crate) pheaders: Vec<JifPheader>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
     pub(crate) deduper: Arc<RwLock<Deduper>>,
-    pub(crate) prefetch: bool,
+    pub(crate) windowing_strategy: WindowingStrategy,
 }
 
 /// The "raw" JIF file representation
@@ -43,23 +44,42 @@ pub struct JifRaw {
     pub(crate) strings_backing: Vec<u8>,
     pub(crate) itree_nodes: Vec<RawITreeNode>,
     pub(crate) ord_chunks: Vec<OrdChunk>,
-    pub(crate) n_total_prefetch: u64,
-    pub(crate) n_write_prefetch: u64,
+    pub(crate) windowing_strategy: WindowingStrategy,
+    pub(crate) prefetch_windows: Vec<PrefetchWindow>,
     pub(crate) data_offset: u64,
     pub(crate) data_segments: BTreeMap<(u64, u64), Vec<u8>>,
 }
 
-#[allow(dead_code)]
-#[repr(packed)]
-pub struct JifHeaderBinary {
-    magic: [u8; 4],
-    n_pheaders: u32,
-    strings_size: u32,
-    itrees_size: u32,
-    ord_size: u32,
-    version: u32,
-    n_write_prefetch: u64,
-    n_total_prefetch: u64,
+#[derive(Debug)]
+pub(crate) struct JifHeader {
+    /// Number of pheaders in the JIF
+    pub(crate) n_pheaders: u32,
+
+    /// Size, in bytes, of the string section (page aligned, padded with 0s)
+    pub(crate) strings_size: u32,
+
+    /// Size, in bytes, of the itree section (page aligned, padded with 1s)
+    pub(crate) itrees_size: u32,
+
+    /// Size, in bytes, of the ordering section (page aligned, padded with 0s)
+    pub(crate) ord_size: u32,
+
+    /// Size, in bytes, of the prefetch section (page aligned, padded with 0s)
+    pub(crate) prefetch_size: u32,
+
+    /// Windowing strategy for prefetch sections
+    pub(crate) windowing_strategy: WindowingStrategy,
+}
+
+impl JifHeader {
+    pub(crate) const fn serialized_size() -> usize {
+        // 4 bytes for the magic number
+        // 1 u32: version number
+        // 5 significant u32s: n_pheaders, strings_size, itrees_size, ord_size, prefetch_size
+        JIF_MAGIC_HEADER.len()
+            + 6 * std::mem::size_of::<u32>()
+            + WindowingStrategy::serialized_size()
+    }
 }
 
 impl Jif {
@@ -80,7 +100,7 @@ impl Jif {
             pheaders,
             ord_chunks: raw.ord_chunks,
             deduper,
-            prefetch: raw.n_total_prefetch > 0,
+            windowing_strategy: raw.windowing_strategy,
         })
     }
 
@@ -107,8 +127,8 @@ impl Jif {
     }
 
     /// Compute the data offset (i.e., the offset where data starts being laid out)
-    pub fn data_offset(&self) -> u64 {
-        let header_size = std::mem::size_of::<JifHeaderBinary>();
+    pub fn data_offset(&self, n_prefetch_windows: usize) -> u64 {
+        let header_size = JifHeader::serialized_size();
 
         let pheader_size = self.pheaders.len() * JifRawPheader::serialized_size();
 
@@ -130,10 +150,13 @@ impl Jif {
 
         let ord_size = self.ord_chunks.len() * OrdChunk::serialized_size();
 
+        let prefetch_size = n_prefetch_windows * PrefetchWindow::serialized_size();
+
         page_align((header_size + pheader_size) as u64)
             + page_align(strings_size as u64)
             + page_align(itree_size as u64)
             + page_align(ord_size as u64)
+            + page_align(prefetch_size as u64)
     }
 
     /// Construct the interval trees of all the pheaders
@@ -151,8 +174,6 @@ impl Jif {
     /// Setup the prefetching section
     /// This includes fracturing ITree intervals by ord chunks
     pub fn setup_prefetch(&mut self) -> JifResult<()> {
-        self.prefetch = true;
-
         self.pheaders.par_iter_mut().try_for_each(|pheader| {
             pheader.fracture_by_ord_chunk(&self.ord_chunks, self.deduper.clone())
         })?;
@@ -179,6 +200,9 @@ impl Jif {
             .write()
             .unwrap()
             .garbage_collect(&tokens_in_use);
+
+        // TODO: handle multiple strategies
+        self.windowing_strategy = WindowingStrategy::Single;
 
         Ok(())
     }
@@ -531,7 +555,12 @@ impl JifRaw {
         };
 
         let mut itree_nodes = Vec::new();
-        let data_offset = jif.data_offset();
+        let data_offset = jif.data_offset(match jif.windowing_strategy {
+            WindowingStrategy::NoPrefetch => 0,
+            WindowingStrategy::Single => 1,
+            strat => todo!("unimplemented strategy: {strat:?}"),
+        });
+
         let pheaders = jif
             .pheaders
             .iter()
@@ -581,36 +610,41 @@ impl JifRaw {
         //  The ordering section, however, is totally ordered by address only
 
         // define data ordering
-        if jif.prefetch {
-            ord_chunks.sort_by_key(|c| c.addr());
-            ord_chunks.sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
-        } else {
-            ord_chunks.sort_by_key(|c| c.timestamp_us);
+        match jif.windowing_strategy {
+            WindowingStrategy::NoPrefetch => {
+                ord_chunks.sort_by_key(|c| c.timestamp_us);
+            }
+            WindowingStrategy::Single => {
+                ord_chunks.sort_by_key(|c| c.addr());
+                ord_chunks.sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
+            }
+            strat => todo!("unimplemented strategy: {strat:?}"),
         }
 
-        let (token_map, itree_nodes, n_prefetch, n_write_prefetch) =
+        let (token_map, itree_nodes, n_total, n_write) =
             Self::order_data_segments(itree_nodes, &ord_chunks, data_offset);
         let data_segments = jif.deduper.write().unwrap().destructure(token_map);
 
         // After the jif data has been sorted into the read/write partitions, we re-order the
         // ordering chunks by address.
         // This allows for a single VMA lookup on prefetch (per VMA)
-        if jif.prefetch {
-            ord_chunks.sort_by_key(|c| c.addr());
-        }
+        ord_chunks.sort_by_key(|c| c.addr());
 
-        // clamp n_prefetch if prefetching has not been set up
-        let n_total_prefetch = if jif.prefetch { n_prefetch } else { 0 };
+        let prefetch_windows = match jif.windowing_strategy {
+            WindowingStrategy::NoPrefetch => Vec::new(),
+            WindowingStrategy::Single => vec![PrefetchWindow { n_write, n_total }],
+            strat => todo!("unimplemented strategy: {strat:?}"),
+        };
 
         JifRaw {
             pheaders,
             strings_backing,
             itree_nodes,
             ord_chunks,
+            windowing_strategy: jif.windowing_strategy,
+            prefetch_windows,
             data_offset,
             data_segments,
-            n_total_prefetch,
-            n_write_prefetch,
         }
     }
 
@@ -638,7 +672,11 @@ impl JifRaw {
         };
 
         let mut itree_nodes = Vec::new();
-        let data_offset = jif.data_offset();
+        let data_offset = jif.data_offset(match jif.windowing_strategy {
+            WindowingStrategy::NoPrefetch => 0,
+            WindowingStrategy::Single => 1,
+            strat => todo!("unimplemented strategy: {strat:?}"),
+        });
         let pheaders = jif
             .pheaders
             .iter()
@@ -680,22 +718,51 @@ impl JifRaw {
             DataSource::Private => 0,
         });
 
-        let (token_map, itree_nodes, n_prefetch, n_write_prefetch) =
+        // Data is layed out differently depending on whether prefetch is set up or not
+        // If prefetch is not set up, both ordering chunks and data are ordered by timestamp
+        // If prefetch is set up, we partition the private data in two partitions
+        //  - the first partition has the pages that are written to
+        //  - the second partition has the pages that are not written to
+        //  Both partitions are ordered by address internally
+        //  The ordering section, however, is totally ordered by address only
+
+        // define data ordering
+        match jif.windowing_strategy {
+            WindowingStrategy::NoPrefetch => {
+                jif.ord_chunks.sort_by_key(|c| c.timestamp_us);
+            }
+            WindowingStrategy::Single => {
+                jif.ord_chunks.sort_by_key(|c| c.addr());
+                jif.ord_chunks
+                    .sort_by_key(|c| if c.is_written_to { 0 } else { 1 });
+            }
+            strat => todo!("unimplemented strategy: {strat:?}"),
+        }
+
+        let (token_map, itree_nodes, n_total, n_write) =
             Self::order_data_segments(itree_nodes, &jif.ord_chunks, data_offset);
         let data_segments = jif.deduper.read().unwrap().clone_segments(token_map);
 
-        // clamp n_prefetch if prefetching has not been set up
-        let n_total_prefetch = if jif.prefetch { n_prefetch } else { 0 };
+        // After the jif data has been sorted into the read/write partitions, we re-order the
+        // ordering chunks by address.
+        // This allows for a single VMA lookup on prefetch (per VMA)
+        jif.ord_chunks.sort_by_key(|c| c.addr());
+
+        let prefetch_windows = match jif.windowing_strategy {
+            WindowingStrategy::NoPrefetch => Vec::new(),
+            WindowingStrategy::Single => vec![PrefetchWindow { n_write, n_total }],
+            strat => todo!("unimplemented strategy: {strat:?}"),
+        };
 
         JifRaw {
             pheaders,
             strings_backing,
             itree_nodes,
             ord_chunks: jif.ord_chunks.clone(),
+            windowing_strategy: jif.windowing_strategy,
+            prefetch_windows,
             data_offset,
             data_segments,
-            n_total_prefetch,
-            n_write_prefetch,
         }
     }
 
@@ -840,7 +907,7 @@ impl std::fmt::Debug for Jif {
         f.debug_struct("Jif")
             .field("pheaders", &self.pheaders)
             .field("ord", &self.ord_chunks)
-            .field("prefetch", &self.prefetch)
+            .field("windowing_strategy", &self.windowing_strategy)
             .finish()
     }
 }
@@ -849,12 +916,13 @@ impl std::fmt::Debug for JifRaw {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let strings = self.strings();
         f.debug_struct("Jif")
+            .field("version", &JIF_VERSION)
             .field("pheaders", &self.pheaders)
             .field("strings", &strings)
             .field("itrees", &self.itree_nodes)
             .field("ord", &self.ord_chunks)
-            .field("n_write_prefetch", &self.n_write_prefetch)
-            .field("n_total_prefetch", &self.n_total_prefetch)
+            .field("prefetch", &self.prefetch_windows)
+            .field("windowing_strategy", &self.windowing_strategy)
             .field(
                 "data_range",
                 &format!(
@@ -881,7 +949,7 @@ pub(crate) mod test {
                 .collect(),
             ord_chunks: vec![],
             deduper: Arc::new(RwLock::new(Deduper::default())),
-            prefetch: false,
+            windowing_strategy: WindowingStrategy::NoPrefetch,
         }
     }
 

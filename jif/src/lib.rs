@@ -8,6 +8,7 @@ pub mod itree;
 mod jif;
 pub mod ord;
 pub mod pheader;
+pub mod prefetch;
 mod utils;
 
 mod read;

@@ -1,9 +1,10 @@
 use crate::error::*;
 use crate::itree::itree_node::RawITreeNode;
-use crate::jif::{JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
+use crate::jif::{JifHeader, JifRaw, JIF_MAGIC_HEADER, JIF_VERSION};
 use crate::ord::OrdChunk;
 use crate::pheader::JifRawPheader;
-use crate::utils::{is_page_aligned, read_u32, read_u64, seek_to_page};
+use crate::prefetch::{PrefetchWindow, WindowingStrategy};
+use crate::utils::{is_page_aligned, read_u32, seek_to_page};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, Read, Seek};
@@ -85,6 +86,21 @@ impl JifRaw {
             })
             .filter(|o| o.as_ref().map(|x| !x.is_empty()).unwrap_or(true))
             .collect::<Result<Vec<_>, _>>()?;
+        seek_to_page(r)?;
+
+        // read prefetch windows
+        let n_prefetch = header.prefetch_size as usize / PrefetchWindow::serialized_size();
+        let prefetch_windows = (0..n_prefetch)
+            .map(|prefetch_window_idx| {
+                PrefetchWindow::from_reader(r).map_err(|prefetch_window_err| {
+                    JifError::BadPrefetchWindow {
+                        prefetch_window_idx,
+                        prefetch_window_err,
+                    }
+                })
+            })
+            .filter(|o| o.as_ref().map(|x| !x.is_empty()).unwrap_or(true))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let data_offset = seek_to_page(r)?;
 
@@ -134,22 +150,12 @@ impl JifRaw {
             strings_backing,
             itree_nodes,
             ord_chunks,
+            prefetch_windows,
+            windowing_strategy: header.windowing_strategy,
             data_offset,
             data_segments,
-            n_write_prefetch: header.n_write_prefetch,
-            n_total_prefetch: header.n_total_prefetch,
         })
     }
-}
-
-#[derive(Debug)]
-struct JifHeader {
-    n_pheaders: u32,
-    strings_size: u32,
-    itrees_size: u32,
-    ord_size: u32,
-    n_write_prefetch: u64,
-    n_total_prefetch: u64,
 }
 
 impl JifHeader {
@@ -160,6 +166,14 @@ impl JifHeader {
 
         if buffer != JIF_MAGIC_HEADER {
             return Err(JifError::BadMagic);
+        }
+
+        let version = read_u32(r, &mut buffer)?;
+        if version != JIF_VERSION {
+            return Err(JifError::BadVersion {
+                expected: JIF_VERSION,
+                found: version,
+            });
         }
 
         let n_pheaders = read_u32(r, &mut buffer)?;
@@ -175,26 +189,21 @@ impl JifHeader {
         if !is_page_aligned(ord_size as u64) {
             return Err(JifError::BadAlignment);
         }
-
-        let version = read_u32(r, &mut buffer)?;
-        if version != JIF_VERSION {
-            return Err(JifError::BadVersion {
-                expected: JIF_VERSION,
-                found: version,
-            });
+        let prefetch_size = read_u32(r, &mut buffer)?;
+        if !is_page_aligned(prefetch_size as u64) {
+            return Err(JifError::BadAlignment);
         }
 
-        let mut buffer = [0u8; 8];
-        let n_write_prefetch = read_u64(r, &mut buffer)?;
-        let n_total_prefetch = read_u64(r, &mut buffer)?;
+        let windowing_strategy =
+            WindowingStrategy::from_reader(r).map_err(JifError::BadWindowingStrategy)?;
 
         Ok(JifHeader {
             n_pheaders,
             strings_size,
             itrees_size,
             ord_size,
-            n_write_prefetch,
-            n_total_prefetch,
+            prefetch_size,
+            windowing_strategy,
         })
     }
 }
