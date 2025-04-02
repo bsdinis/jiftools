@@ -150,9 +150,10 @@ fn plot_timeplot(
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let jif = Jif::from_reader(&mut BufReader::new(
-        File::open(cli.jif_file).context("failed to open file")?,
+        File::open(&cli.jif_file)
+            .with_context(|| format!("failed to open file {}", cli.jif_file.display()))?,
     ))
-    .context("failed to read jif")?;
+    .with_context(|| format!("failed to read jif {}", cli.jif_file.display()))?;
 
     let default_title = cli
         .ord_file
@@ -161,8 +162,12 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "<default>".to_string());
 
     let trace = {
-        let file = BufReader::new(File::open(cli.ord_file).context("failed to open ord list")?);
-        let trace = read_trace(file).context("failed to read the trace")?;
+        let file = BufReader::new(
+            File::open(&cli.ord_file)
+                .with_context(|| format!("failed to open ord file: {}", cli.ord_file.display()))?,
+        );
+        let trace = read_trace(file)
+            .with_context(|| format!("failed to read the trace: {}", cli.ord_file.display()))?;
 
         Ok::<Vec<TimestampedAccess>, anyhow::Error>(dedup_trace(trace))
     }?;

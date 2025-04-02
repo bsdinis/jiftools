@@ -682,8 +682,12 @@ fn select_materialized(jif: Jif, cmds: Vec<MaterializedCommand>) -> json::Result
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
+    let mut file = BufReader::new(
+        File::open(&args.jif_file)
+            .with_context(|| format!("failed to open file: {}", args.jif_file.display()))?,
+    );
+
     if args.check {
-        let mut file = BufReader::new(File::open(&args.jif_file).context("failed to open file")?);
         if args.raw {
             JifRaw::from_reader(&mut file).context("failed to open jif in raw mode")?;
         } else {
@@ -712,7 +716,6 @@ fn main() -> anyhow::Result<()> {
             cmds
         };
 
-        let mut file = BufReader::new(File::open(&args.jif_file).context("failed to open file")?);
         let jif = JifRaw::from_reader(&mut file).context("failed to open jif in raw mode")?;
         select_raw(jif, cmds).map_err(|e| anyhow::anyhow!("json error: {e:?}"))
     } else {
@@ -735,7 +738,6 @@ fn main() -> anyhow::Result<()> {
             cmds
         };
 
-        let mut file = BufReader::new(File::open(&args.jif_file).context("failed to open file")?);
         let jif = Jif::from_reader(&mut file).context("failed to open jif")?;
         select_materialized(jif, cmds).map_err(|e| anyhow::anyhow!("json error: {e:?}"))
     }?;

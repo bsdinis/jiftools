@@ -90,8 +90,10 @@ enum Command {
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
-    let mut input_file =
-        BufReader::new(File::open(&args.input_file).context("failed to open input JIF")?);
+    let mut input_file = BufReader::new(
+        File::open(&args.input_file)
+            .with_context(|| format!("failed to open input JIF: {}", args.input_file.display()))?,
+    );
 
     let mut jif = Jif::from_reader(&mut input_file)?;
 
@@ -126,8 +128,9 @@ fn main() -> anyhow::Result<()> {
             Command::AddOrd { time_log } => {
                 let tsa_log = match time_log {
                     Some(fname) => {
-                        let file =
-                            BufReader::new(File::open(fname).context("failed to open ord list")?);
+                        let file = BufReader::new(File::open(&fname).with_context(|| {
+                            format!("failed to open ord file: {}", fname.display())
+                        })?);
                         read_trace(file).context("failed to read trace")?
                     }
                     None => {
@@ -142,9 +145,10 @@ fn main() -> anyhow::Result<()> {
                 jif.add_ordering_info(ords)?;
             }
             Command::Write { output_file } => {
-                let mut output_file = BufWriter::new(
-                    File::create(&output_file).context("failed to open output JIF")?,
-                );
+                let mut output_file =
+                    BufWriter::new(File::create(&output_file).with_context(|| {
+                        format!("failed to open output JIF: {}", output_file.display())
+                    })?);
                 let raw = JifRaw::from_materialized_ref(&mut jif);
 
                 if args.show {

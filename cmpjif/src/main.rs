@@ -163,14 +163,10 @@ fn build_ordering_digest(jif: &Jif, include_private: bool, include_shared: bool)
 
 /// Open the JIF file
 fn open_jif(path: &std::path::Path) -> anyhow::Result<Jif> {
-    Jif::from_reader(&mut BufReader::new(File::open(path).context(format!(
-        "failed to open file {}",
-        path.to_str().unwrap_or("<invalid path>")
-    ))?))
-    .context(format!(
-        "failed to read jif {}",
-        path.to_str().unwrap_or("<invalid path>")
+    Jif::from_reader(&mut BufReader::new(
+        File::open(path).with_context(|| format!("failed to open file {}", path.display()))?,
     ))
+    .with_context(|| format!("failed to read jif {}", path.display()))
 }
 
 #[derive(Default, Debug)]
