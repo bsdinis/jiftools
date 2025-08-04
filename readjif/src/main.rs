@@ -315,24 +315,37 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                     println!("{}", s);
                 }
             }
-            JifCmd::Pages(p) => {
+            JifCmd::Pages(s) => {
                 print!("{{ ");
-                if p.zero {
+                if s.zero {
                     print!("zero_pages: {}, ", jif.zero_pages())
                 }
-                if p.private {
+                if s.private {
                     print!("private_pages: {}, ", jif.private_pages())
                 }
-                if p.shared {
+                if s.shared {
                     print!("shared_pages: {}, ", jif.shared_pages())
                 }
-                if p.total {
+                if s.total {
                     print!("total_pages: {}, ", jif.total_pages())
                 }
                 println!("}}");
             }
-            JifCmd::Intervals => {
-                println!("{}", jif.n_intervals())
+            JifCmd::Intervals(s) => {
+                print!("{{ ");
+                if s.zero {
+                    print!("zero_intervals: {}, ", jif.n_zero_intervals())
+                }
+                if s.private {
+                    print!("private_intervals: {}, ", jif.n_private_intervals())
+                }
+                if s.shared {
+                    print!("shared_intervals: {}, ", jif.n_shared_intervals())
+                }
+                if s.total {
+                    print!("total_intervals: {}, ", jif.n_intervals())
+                }
+                println!("}}");
             }
         },
         MaterializedCommand::Ord(o) => {

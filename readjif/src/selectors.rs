@@ -9,6 +9,9 @@ jif.private_pages                  number of private pages in the JIF
 jif.shared_pages                   number of shared pages in the pheader
 jif.pages                          total number of pages
 jif.intervals                      number of total intervals in the jif (counting implicit intervals)
+jif.private_intervals              number of private intervals in the jif (all explicit)
+jif.shared_intervals               number of shared intervals in the jif (all implicit)
+jif.zero_intervals                 number of zero intervals in the jif (counting implicit intervals)
 
 ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
@@ -44,7 +47,7 @@ pub(crate) enum MaterializedCommand {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct PageSelector {
+pub(crate) struct RegionTypeSelector {
     pub(crate) zero: bool,
     pub(crate) private: bool,
     pub(crate) shared: bool,
@@ -55,8 +58,8 @@ pub(crate) struct PageSelector {
 pub(crate) enum JifCmd {
     All,
     Strings,
-    Pages(PageSelector),
-    Intervals,
+    Pages(RegionTypeSelector),
+    Intervals(RegionTypeSelector),
 }
 
 #[derive(Debug)]
@@ -185,13 +188,16 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                     let (_prefix, suffix) = trimmed.split_at("jif".len());
 
                     let options = [
-                        "",               // 0
-                        ".strings",       // 1
-                        ".zero_pages",    // 2
-                        ".private_pages", // 3
-                        ".shared_pages",  // 4
-                        ".pages",         // 5
-                        ".intervals",     // 6
+                        "",                   // 0
+                        ".strings",           // 1
+                        ".zero_pages",        // 2
+                        ".private_pages",     // 3
+                        ".shared_pages",      // 4
+                        ".pages",             // 5
+                        ".intervals",         // 6
+                        ".private_intervals", // 7
+                        ".shared_intervals",  // 8
+                        ".zero_intervals",    // 9
                     ];
                     let found_options = find_multiple_option(trimmed, suffix, &options)?;
 
@@ -205,16 +211,28 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                         }
 
                         MaterializedCommand::Jif(JifCmd::Strings)
-                    } else if found_options.contains(&6) {
-                        if found_options.len() > 1 {
-                            return Err(anyhow::anyhow!(
-                                "intervals option is incompatible with the other options"
-                            ));
+                    } else if found_options.contains(&6)
+                        || found_options.contains(&7)
+                        || found_options.contains(&8)
+                        || found_options.contains(&9)
+                    {
+                        let mut selector = RegionTypeSelector::default();
+                        if found_options.contains(&6) {
+                            selector.total = true;
+                        }
+                        if found_options.contains(&7) {
+                            selector.private = true;
+                        }
+                        if found_options.contains(&8) {
+                            selector.shared = true;
+                        }
+                        if found_options.contains(&9) {
+                            selector.zero = true;
                         }
 
-                        MaterializedCommand::Jif(JifCmd::Intervals)
+                        MaterializedCommand::Jif(JifCmd::Intervals(selector))
                     } else {
-                        let mut selector = PageSelector::default();
+                        let mut selector = RegionTypeSelector::default();
                         if found_options.contains(&2) {
                             selector.zero = true;
                         }

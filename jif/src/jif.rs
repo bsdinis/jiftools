@@ -245,6 +245,9 @@ impl Jif {
             }
         }
 
+        chunks.push(mergeable_chunk);
+        chunks.sort_by_key(|ord| ord.timestamp_us);
+
         self.ord_chunks = chunks;
         Ok(())
     }
@@ -374,6 +377,30 @@ impl Jif {
         self.pheaders()
             .iter()
             .map(|pheader| pheader.n_intervals())
+            .sum()
+    }
+
+    /// Get the number of private intervals in the Jif
+    pub fn n_private_intervals(&self) -> usize {
+        self.pheaders()
+            .iter()
+            .map(|pheader| pheader.n_private_intervals())
+            .sum()
+    }
+
+    /// Get the number of shared intervals in the Jif
+    pub fn n_shared_intervals(&self) -> usize {
+        self.pheaders()
+            .iter()
+            .map(|pheader| pheader.n_shared_intervals())
+            .sum()
+    }
+
+    /// Get the number of zero intervals (including implicit) in the Jif
+    pub fn n_zero_intervals(&self) -> usize {
+        self.pheaders()
+            .iter()
+            .map(|pheader| pheader.n_zero_intervals())
             .sum()
     }
 }

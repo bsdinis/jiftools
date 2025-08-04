@@ -258,7 +258,7 @@ impl JifPheader {
                 vaddr_range,
                 ..
             } => {
-                if itree.n_data_intervals() != 1 {
+                if itree.n_private_intervals() != 1 {
                     build_ref_from_zero(itree, *vaddr_range, deduper)?
                 } else {
                     let data_interval = itree
@@ -584,6 +584,21 @@ impl JifPheader {
     /// Number of intervals in the pheader (including implicit)
     pub(crate) fn n_intervals(&self) -> usize {
         self.itree().n_intervals()
+    }
+
+    /// Number of private intervals in the pheader
+    pub(crate) fn n_private_intervals(&self) -> usize {
+        self.itree().n_private_intervals()
+    }
+
+    /// Number of shared intervals in the pheader
+    pub(crate) fn n_shared_intervals(&self) -> usize {
+        self.itree().n_shared_intervals()
+    }
+
+    /// Number of zero intervals in the pheader (including implicit)
+    pub(crate) fn n_zero_intervals(&self) -> usize {
+        self.itree().n_zero_intervals()
     }
 }
 
@@ -934,6 +949,14 @@ pub(crate) mod test {
                     assert!(false);
                 }
             }
+
+            assert_eq!(
+                pheader.n_intervals(),
+                pheader.n_private_intervals()
+                    + pheader.n_shared_intervals()
+                    + pheader.n_zero_intervals()
+            );
+            assert_eq!(pheader.n_shared_intervals(), 0);
         }
     }
 
@@ -984,6 +1007,12 @@ pub(crate) mod test {
                     assert_eq!(cnt, 2);
                 }
             }
+            assert_eq!(
+                pheader.n_intervals(),
+                pheader.n_private_intervals()
+                    + pheader.n_shared_intervals()
+                    + pheader.n_zero_intervals()
+            );
         }
     }
 }

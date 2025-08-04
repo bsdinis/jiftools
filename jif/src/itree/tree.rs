@@ -491,9 +491,19 @@ impl<Data: IntervalData + std::default::Default + Send> ITree<Data> {
         self.nodes.iter().map(|n| n.n_intervals()).sum()
     }
 
-    /// Number of data holding intervals in the [`ITree`]
-    pub fn n_data_intervals(&self) -> usize {
+    /// Number of explicit zero intervals in the [`ITree`]
+    pub fn n_explicit_zero_intervals(&self) -> usize {
+        self.n_explicit_intervals() - self.n_private_intervals()
+    }
+
+    /// Number of private data intervals in the [`ITree`]
+    pub fn n_private_intervals(&self) -> usize {
         self.nodes.iter().map(|n| n.n_data_intervals()).sum()
+    }
+
+    /// Number of implicit intervals in the [`ITree`]
+    pub fn n_implicit_intervals(&self) -> usize {
+        self.n_intervals() - self.n_explicit_intervals()
     }
 
     /// Iterate over the intervals
@@ -799,7 +809,7 @@ pub(crate) mod test {
         let tree: ITree<RefIntervalData> = gen_empty();
         assert_eq!(tree.n_nodes(), 0);
         assert_eq!(tree.n_explicit_intervals(), 0);
-        assert_eq!(tree.n_data_intervals(), 0);
+        assert_eq!(tree.n_private_intervals(), 0);
         assert_eq!(tree.in_order_intervals().count(), 0);
         assert_eq!(tree.zero_byte_size(), 0);
         assert_eq!(tree.private_data_size(), 0);

@@ -49,11 +49,27 @@ impl<'a> ITreeView<'a> {
         }
     }
 
-    /// Number of intervals holding data
-    pub fn n_data_intervals(&self) -> usize {
+    /// Size of the [`ITree`] in number of private intervals
+    pub fn n_private_intervals(&self) -> usize {
         match self {
-            ITreeView::Anon { inner } => inner.n_data_intervals(),
-            ITreeView::Ref { inner } => inner.n_data_intervals(),
+            ITreeView::Anon { inner } => inner.n_private_intervals(),
+            ITreeView::Ref { inner } => inner.n_private_intervals(),
+        }
+    }
+
+    /// Size of the [`ITree`] in number of shared intervals
+    pub fn n_shared_intervals(&self) -> usize {
+        match self {
+            ITreeView::Anon { .. } => 0,
+            ITreeView::Ref { inner } => inner.n_implicit_intervals(),
+        }
+    }
+
+    /// Size of the [`ITree`] in number of zero intervals, counting the implicit intervals too
+    pub fn n_zero_intervals(&self) -> usize {
+        match self {
+            ITreeView::Anon { inner } => inner.n_implicit_intervals(),
+            ITreeView::Ref { inner } => inner.n_explicit_zero_intervals(),
         }
     }
 
@@ -231,5 +247,30 @@ mod test {
             };
             cnt += 1
         }
+    }
+
+    #[test]
+    fn anon_n_intervals() {
+        let itree: ITree<AnonIntervalData> = gen_anon_tree();
+        let view = ITreeView::Anon { inner: &itree };
+        assert_eq!(view.n_intervals(), VADDRS.len() - 1);
+        assert_eq!(
+            view.n_intervals(),
+            view.n_private_intervals() + view.n_shared_intervals() + view.n_zero_intervals()
+        );
+        assert_eq!(view.n_zero_intervals(), itree.n_implicit_intervals());
+        assert_eq!(view.n_shared_intervals(), 0);
+    }
+
+    #[test]
+    fn ref_n_intervals() {
+        let itree: ITree<RefIntervalData> = gen_ref_tree();
+        let view = ITreeView::Ref { inner: &itree };
+        assert_eq!(view.n_intervals(), VADDRS.len() - 1);
+        assert_eq!(
+            view.n_intervals(),
+            view.n_private_intervals() + view.n_shared_intervals() + view.n_zero_intervals()
+        );
+        assert_eq!(view.n_shared_intervals(), itree.n_implicit_intervals());
     }
 }
