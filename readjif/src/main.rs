@@ -70,6 +70,7 @@
 //! - `pheader.zero_pages`: number of zero pages
 
 use jif::*;
+use json::JsonValue;
 
 mod selectors;
 mod utils;
@@ -97,10 +98,10 @@ struct Cli {
     #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     jif_file: std::path::PathBuf,
 
-    /// Selector command
+    /// Selector commands
     ///
     /// For help, type `help` as the subcommand
-    command: Option<String>,
+    commands: Vec<String>,
 
     /// Use the raw JIF
     #[arg(short, long)]
@@ -111,479 +112,571 @@ struct Cli {
     check: bool,
 }
 
-fn select_raw(jif: JifRaw, cmd: RawCommand) {
-    match cmd {
-        RawCommand::Jif(j) => match j {
-            RawJifCmd::All => println!("{:#x?}", jif),
-            RawJifCmd::Metadata => println!("metadata section: {:#x} B", jif.data_offset()),
-            RawJifCmd::Data => println!("data section: {:#x} B", jif.data_size()),
-        },
-        RawCommand::Strings => {
-            for s in jif.strings().iter() {
-                println!("{}", s);
+fn select_raw(jif: JifRaw, cmds: Vec<RawCommand>) -> Result<JsonValue, json::Error> {
+    let mut json_value = JsonValue::new_object();
+    for cmd in cmds {
+        match cmd {
+            RawCommand::Jif(j) => match j {
+                RawJifCmd::All => {
+                    json_value.insert("jif", format!("{jif:#x?}"))?;
+                }
+                RawJifCmd::Metadata => {
+                    json_value
+                        .insert("jif.metadata_size", format!("{:#x?} B", jif.data_offset()))?;
+                }
+                RawJifCmd::Data => {
+                    json_value.insert("jif.data_size", format!("{:#x?} B", jif.data_size()))?;
+                }
+            },
+            RawCommand::Strings => {
+                json_value.insert("jif.strings", jif.strings())?;
             }
-        }
-        RawCommand::Ord(o) => {
-            let ords = jif.ord_chunks();
-            match o {
-                OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:x?}", ords),
-                OrdCmd::Len => println!("ord_len: {}", ords.len()),
-                OrdCmd::Vmas => panic!("cannot get vmas for an ord chunk in a raw JIF"),
-                OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
-                OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
-                    "{:x?}",
-                    if start < ords.len() {
-                        &ords[start..]
-                    } else {
-                        &[]
+            RawCommand::Ord(o) => {
+                let ords = jif.ord_chunks();
+                match o {
+                    OrdCmd::All | OrdCmd::Range(IndexRange::None) => {
+                        json_value.insert("ord", format!("{ords:#x?}"))?;
                     }
-                ),
-                OrdCmd::Range(IndexRange::LeftOpen { end }) => {
-                    println!("{:x?}", &ords[..std::cmp::min(end, ords.len())])
-                }
-                OrdCmd::Range(IndexRange::Closed { start, end }) => println!(
-                    "{:x?}",
-                    if start < ords.len() {
-                        &ords[start..std::cmp::min(end, ords.len())]
-                    } else {
-                        &[]
+                    OrdCmd::Len => {
+                        json_value.insert("ord.len", ords.len())?;
                     }
-                ),
-                OrdCmd::Range(IndexRange::Index(idx)) => {
-                    if idx < ords.len() {
-                        println!("{:x?}", &ords[idx]);
+                    OrdCmd::Vmas => panic!("cannot get vmas for an ord chunk in a raw JIF"),
+                    OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
+                    OrdCmd::Range(IndexRange::RightOpen { start }) => {
+                        json_value.insert(
+                            "ord",
+                            format!(
+                                "{:x?}",
+                                if start < ords.len() {
+                                    &ords[start..]
+                                } else {
+                                    &[]
+                                }
+                            ),
+                        )?;
                     }
-                }
-                OrdCmd::Pages(s) => {
-                    print!("{{ ");
-                    if s.zero {
-                        print!(
-                            "private_pages: {}, ",
-                            ords.iter()
-                                .filter(|o| o.kind() == DataSource::Private)
-                                .map(|o| o.size())
-                                .sum::<u64>()
-                        )
+                    OrdCmd::Range(IndexRange::LeftOpen { end }) => {
+                        json_value.insert(
+                            "ord",
+                            format!("{:x?}", &ords[..std::cmp::min(end, ords.len())]),
+                        )?;
                     }
-                    if s.private {
-                        print!(
-                            "shared_pages: {}, ",
-                            ords.iter()
-                                .filter(|o| o.kind() == DataSource::Shared)
-                                .map(|o| o.size())
-                                .sum::<u64>()
-                        )
+                    OrdCmd::Range(IndexRange::Closed { start, end }) => {
+                        json_value.insert(
+                            "ord",
+                            format!(
+                                "{:x?}",
+                                if start < ords.len() {
+                                    &ords[start..std::cmp::min(end, ords.len())]
+                                } else {
+                                    &[]
+                                }
+                            ),
+                        )?;
                     }
-                    if s.shared {
-                        print!(
-                            "zero_pages: {}, ",
-                            ords.iter()
-                                .filter(|o| o.kind() == DataSource::Zero)
-                                .map(|o| o.size())
-                                .sum::<u64>()
-                        )
+                    OrdCmd::Range(IndexRange::Index(idx)) => {
+                        if idx < ords.len() {
+                            json_value.insert("ord", format!("{:x?}", &ords[idx]))?;
+                        }
                     }
-                    if s.total {
-                        print!("pages: {}, ", ords.iter().map(|o| o.size()).sum::<u64>())
+                    OrdCmd::Pages(s) => {
+                        if s.private {
+                            json_value.insert(
+                                "ord.private_pages",
+                                ords.iter()
+                                    .filter(|o| o.kind() == DataSource::Private)
+                                    .map(|o| o.size())
+                                    .sum::<u64>(),
+                            )?;
+                        }
+                        if s.shared {
+                            json_value.insert(
+                                "ord.shared_pages",
+                                ords.iter()
+                                    .filter(|o| o.kind() == DataSource::Shared)
+                                    .map(|o| o.size())
+                                    .sum::<u64>(),
+                            )?;
+                        }
+                        if s.zero {
+                            json_value.insert(
+                                "ord.zero",
+                                ords.iter()
+                                    .filter(|o| o.kind() == DataSource::Zero)
+                                    .map(|o| o.size())
+                                    .sum::<u64>(),
+                            )?;
+                        }
+                        if s.total {
+                            json_value
+                                .insert("ord.pages", ords.iter().map(|o| o.size()).sum::<u64>())?;
+                        }
                     }
-                    println!("}}");
-                }
-                OrdCmd::Intervals(_) => {
-                    panic!("error: cannot select ord intervals on raw jif");
-                }
-            }
-        }
-        RawCommand::ITree(i) => {
-            let itree_nodes = jif.itree_nodes();
-            match i {
-                ITreeCmd::All | ITreeCmd::Range(IndexRange::None) => {
-                    println!("{:#x?}", itree_nodes)
-                }
-                ITreeCmd::Len => println!("n_itree_nodes: {}", itree_nodes.len()),
-                ITreeCmd::Range(IndexRange::RightOpen { start }) => println!(
-                    "{:#x?}",
-                    if start < itree_nodes.len() {
-                        &itree_nodes[start..]
-                    } else {
-                        &[]
-                    }
-                ),
-                ITreeCmd::Range(IndexRange::LeftOpen { end }) => {
-                    println!(
-                        "{:#x?}",
-                        &itree_nodes[..std::cmp::min(end, itree_nodes.len())]
-                    )
-                }
-                ITreeCmd::Range(IndexRange::Closed { start, end }) => println!(
-                    "{:#x?}",
-                    if start < itree_nodes.len() {
-                        &itree_nodes[start..std::cmp::min(end, itree_nodes.len())]
-                    } else {
-                        &[]
-                    }
-                ),
-                ITreeCmd::Range(IndexRange::Index(idx)) => {
-                    if idx < itree_nodes.len() {
-                        println!("{:#x?}", itree_nodes[idx]);
+                    OrdCmd::Intervals(_) => {
+                        panic!("error: cannot select ord intervals on raw jif");
                     }
                 }
             }
-        }
-        RawCommand::Pheader(p) => {
-            let pheaders = jif.pheaders();
-            match p {
-                RawPheaderCmd::Len => println!("n_pheaders: {}", pheaders.len()),
-                RawPheaderCmd::All => println!("{:#x?}", pheaders),
-                RawPheaderCmd::Selector { range, selector } => {
-                    let ranged_pheaders = match range {
-                        IndexRange::None => pheaders,
-                        IndexRange::Closed { start, end } => {
-                            if start < pheaders.len() {
-                                &pheaders[start..std::cmp::min(end, pheaders.len())]
-                            } else {
-                                &[]
+            RawCommand::ITree(i) => {
+                let itree_nodes = jif.itree_nodes();
+                match i {
+                    ITreeCmd::All | ITreeCmd::Range(IndexRange::None) => {
+                        json_value.insert("itree", format!("{:#x?}", itree_nodes))?;
+                    }
+                    ITreeCmd::Len => {
+                        json_value.insert("itree.len", itree_nodes.len())?;
+                    }
+                    ITreeCmd::Range(IndexRange::RightOpen { start }) => {
+                        json_value.insert(
+                            "itree",
+                            format!(
+                                "{:#x?}",
+                                if start < itree_nodes.len() {
+                                    &itree_nodes[start..]
+                                } else {
+                                    &[]
+                                }
+                            ),
+                        )?;
+                    }
+                    ITreeCmd::Range(IndexRange::LeftOpen { end }) => {
+                        json_value.insert(
+                            "itree",
+                            format!(
+                                "{:#x?}",
+                                &itree_nodes[..std::cmp::min(end, itree_nodes.len())]
+                            ),
+                        )?;
+                    }
+                    ITreeCmd::Range(IndexRange::Closed { start, end }) => {
+                        json_value.insert(
+                            "itree",
+                            format!(
+                                "{:#x?}",
+                                if start < itree_nodes.len() {
+                                    &itree_nodes[start..std::cmp::min(end, itree_nodes.len())]
+                                } else {
+                                    &[]
+                                }
+                            ),
+                        )?;
+                    }
+                    ITreeCmd::Range(IndexRange::Index(idx)) => {
+                        if idx < itree_nodes.len() {
+                            json_value.insert("itree", format!("{:#x?}", itree_nodes[idx]))?;
+                        }
+                    }
+                }
+            }
+            RawCommand::Pheader(p) => {
+                let pheaders = jif.pheaders();
+                match p {
+                    RawPheaderCmd::Len => {
+                        json_value.insert("pheader.len", pheaders.len())?;
+                    }
+                    RawPheaderCmd::All => {
+                        json_value.insert("pheader", format!("{:#x?}", pheaders))?;
+                    }
+                    RawPheaderCmd::Selector { range, selector } => {
+                        let ranged_pheaders = match range {
+                            IndexRange::None => pheaders,
+                            IndexRange::Closed { start, end } => {
+                                if start < pheaders.len() {
+                                    &pheaders[start..std::cmp::min(end, pheaders.len())]
+                                } else {
+                                    &[]
+                                }
                             }
-                        }
-                        IndexRange::LeftOpen { end } => {
-                            &pheaders[..std::cmp::min(end, pheaders.len())]
-                        }
-                        IndexRange::RightOpen { start } => {
-                            if start < pheaders.len() {
-                                &pheaders[start..]
-                            } else {
-                                &[]
+                            IndexRange::LeftOpen { end } => {
+                                &pheaders[..std::cmp::min(end, pheaders.len())]
                             }
-                        }
-                        IndexRange::Index(idx) => {
-                            if idx < pheaders.len() {
-                                &pheaders[idx..(idx + 1)]
-                            } else {
-                                &[]
+                            IndexRange::RightOpen { start } => {
+                                if start < pheaders.len() {
+                                    &pheaders[start..]
+                                } else {
+                                    &[]
+                                }
                             }
-                        }
-                    };
+                            IndexRange::Index(idx) => {
+                                if idx < pheaders.len() {
+                                    &pheaders[idx..(idx + 1)]
+                                } else {
+                                    &[]
+                                }
+                            }
+                        };
 
-                    println!("[");
-                    for pheader in ranged_pheaders {
-                        print!("phdr {{ ");
-                        if selector.virtual_range {
-                            let (start, end) = pheader.virtual_range();
-                            print!("virtual_range: [{:#x}; {:#x}), ", start, end);
-                        }
-                        if selector.virtual_size {
-                            let (start, end) = pheader.virtual_range();
-                            print!("virtual_size: {:#x} B, ", end - start);
-                        }
-                        if selector.pathname_offset {
-                            if let Some(offset) = pheader.pathname_offset() {
-                                print!("pathname_offset: {:#x}, ", offset);
+                        let mut pheaders = JsonValue::new_array();
+                        for pheader in ranged_pheaders {
+                            let mut pheader_json = JsonValue::new_object();
+                            if selector.virtual_range {
+                                let (start, end) = pheader.virtual_range();
+                                pheader_json.insert(
+                                    "virtual_range",
+                                    format!("[{:#x}; {:#x})", start, end),
+                                )?;
                             }
-                        }
-                        if selector.ref_offset {
-                            if let Some(offset) = pheader.ref_offset() {
-                                print!("ref_offset: {:#x}, ", offset);
+                            if selector.virtual_size {
+                                let (start, end) = pheader.virtual_range();
+                                pheader_json
+                                    .insert("virtual_size", format!("{:#x} B", end - start))?;
                             }
-                        }
-                        if selector.prot {
-                            let prot = pheader.prot();
-                            print!(
-                                "prot: {}{}{}, ",
-                                if prot & Prot::Read as u8 != 0 {
-                                    "r"
-                                } else {
-                                    "-"
-                                },
-                                if prot & Prot::Write as u8 != 0 {
-                                    "w"
-                                } else {
-                                    "-"
-                                },
-                                if prot & Prot::Exec as u8 != 0 {
-                                    "x"
-                                } else {
-                                    "-"
-                                },
-                            )
-                        }
-                        if selector.itree {
-                            if let Some((idx, n_nodes)) = pheader.itree() {
-                                print!("itree: [{}; #{}), ", idx, n_nodes);
+                            if selector.pathname_offset {
+                                if let Some(offset) = pheader.pathname_offset() {
+                                    pheader_json.insert("pathname_offset", offset)?;
+                                }
                             }
+                            if selector.ref_offset {
+                                if let Some(offset) = pheader.ref_offset() {
+                                    pheader_json.insert("ref_offset", offset)?;
+                                }
+                            }
+                            if selector.prot {
+                                let prot = pheader.prot();
+                                pheader_json.insert(
+                                    "prot",
+                                    format!(
+                                        "{}{}{}",
+                                        if prot & Prot::Read as u8 != 0 {
+                                            "r"
+                                        } else {
+                                            "-"
+                                        },
+                                        if prot & Prot::Write as u8 != 0 {
+                                            "w"
+                                        } else {
+                                            "-"
+                                        },
+                                        if prot & Prot::Exec as u8 != 0 {
+                                            "x"
+                                        } else {
+                                            "-"
+                                        },
+                                    ),
+                                )?;
+                            }
+                            if selector.itree {
+                                if let Some((idx, n_nodes)) = pheader.itree() {
+                                    pheader_json
+                                        .insert("itree", format!("[{}; #{}), ", idx, n_nodes))?;
+                                }
+                            }
+                            pheaders.push(pheader_json)?;
                         }
-                        println!("}}")
+                        json_value.insert("pheaders", pheaders)?;
                     }
-                    println!("]");
                 }
             }
         }
     }
+
+    Ok(json_value)
 }
 
-fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
-    match cmd {
-        MaterializedCommand::Jif(j) => match j {
-            JifCmd::All => println!("{:#x?}", jif),
-            JifCmd::Strings => {
-                for s in jif.strings().iter() {
-                    println!("{}", s);
+fn select_materialized(jif: Jif, cmds: Vec<MaterializedCommand>) -> json::Result<JsonValue> {
+    let mut json_value = JsonValue::new_object();
+    for cmd in cmds {
+        match cmd {
+            MaterializedCommand::Jif(j) => match j {
+                JifCmd::All => {
+                    json_value.insert("jif", format!("{jif:#x?}"))?;
                 }
-            }
-            JifCmd::Pages(s) => {
-                print!("{{ ");
-                if s.zero {
-                    print!("zero_pages: {}, ", jif.zero_pages())
+                JifCmd::Strings => {
+                    let mut strings = JsonValue::new_array();
+                    jif.strings()
+                        .iter()
+                        .map(|s| strings.push(*s))
+                        .collect::<Result<(), _>>()?;
+                    json_value.insert("jif.strings", strings)?;
                 }
-                if s.private {
-                    print!("private_pages: {}, ", jif.private_pages())
-                }
-                if s.shared {
-                    print!("shared_pages: {}, ", jif.shared_pages())
-                }
-                if s.total {
-                    print!("total_pages: {}, ", jif.total_pages())
-                }
-                println!("}}");
-            }
-            JifCmd::Intervals(s) => {
-                print!("{{ ");
-                if s.zero {
-                    print!("zero_intervals: {}, ", jif.n_zero_intervals())
-                }
-                if s.private {
-                    print!("private_intervals: {}, ", jif.n_private_intervals())
-                }
-                if s.shared {
-                    print!("shared_intervals: {}, ", jif.n_shared_intervals())
-                }
-                if s.total {
-                    print!("total_intervals: {}, ", jif.n_intervals())
-                }
-                println!("}}");
-            }
-        },
-        MaterializedCommand::Ord(o) => {
-            let ords = jif.ord_chunks();
-            match o {
-                OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
-                OrdCmd::Len => println!("ord_len: {}", ords.len()),
-                OrdCmd::Vmas => println!(
-                    "{}",
-                    ords.iter()
-                        .filter_map(|o| jif.ord_vma(o))
-                        .collect::<HashSet<_>>()
-                        .len()
-                ),
-                OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
-                OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
-                    "{:#x?}",
-                    if start < ords.len() {
-                        &ords[start..]
-                    } else {
-                        &[]
-                    }
-                ),
-                OrdCmd::Range(IndexRange::LeftOpen { end }) => {
-                    println!("{:#x?}", &ords[..std::cmp::min(end, ords.len())])
-                }
-                OrdCmd::Range(IndexRange::Closed { start, end }) => println!(
-                    "{:#x?}",
-                    if start < ords.len() {
-                        &ords[start..std::cmp::min(end, ords.len())]
-                    } else {
-                        &[]
-                    }
-                ),
-                OrdCmd::Range(IndexRange::Index(idx)) => {
-                    if idx < ords.len() {
-                        println!("{:#x?}", &ords[idx]);
-                    }
-                }
-                OrdCmd::Pages(s) => {
-                    print!("{{ ");
+                JifCmd::Pages(s) => {
                     if s.zero {
-                        print!(
-                            "private_pages: {}, ",
-                            ords.iter()
-                                .filter(|o| o.kind() == DataSource::Private)
-                                .map(|o| o.size())
-                                .sum::<u64>()
-                        )
+                        json_value.insert("jif.zero_pages", jif.zero_pages())?;
                     }
                     if s.private {
-                        print!(
-                            "shared_pages: {}, ",
-                            ords.iter()
-                                .filter(|o| o.kind() == DataSource::Shared)
-                                .map(|o| o.size())
-                                .sum::<u64>()
-                        )
+                        json_value.insert("jif.private_pages", jif.private_pages())?;
                     }
                     if s.shared {
-                        print!(
-                            "zero_pages: {}, ",
-                            ords.iter()
-                                .filter(|o| o.kind() == DataSource::Zero)
-                                .map(|o| o.size())
-                                .sum::<u64>()
-                        )
+                        json_value.insert("jif.shared_pages", jif.shared_pages())?;
                     }
                     if s.total {
-                        print!("pages: {}, ", ords.iter().map(|o| o.size()).sum::<u64>())
+                        json_value.insert("jif.pages", jif.total_pages())?;
                     }
-                    println!("}}");
                 }
-                OrdCmd::Intervals(s) => {
-                    let mut total_intervals = HashSet::new();
-                    let mut private_intervals = HashSet::new();
-                    let mut shared_intervals = HashSet::new();
-                    let mut zero_intervals = HashSet::new();
-                    // ASSUMPTION: each ord chunk is in a single interval
-                    for o in ords {
-                        match jif.resolve(o.addr()) {
-                            Some(i) if i.source == DataSource::Private => {
-                                total_intervals.insert(i.start);
-                                private_intervals.insert(i.start);
-                            }
-                            Some(i) if i.source == DataSource::Shared => {
-                                total_intervals.insert(i.start);
-                                shared_intervals.insert(i.start);
-                            }
-                            Some(i) => {
-                                assert!(i.source == DataSource::Zero);
-                                total_intervals.insert(i.start);
-                                zero_intervals.insert(i.start);
-                            }
-                            None => {
-                                eprintln!("WARN: ordering segment {o:x?} is not mapped by the jif");
-                            }
-                        }
-                    }
-                    assert_eq!(
-                        total_intervals.len(),
-                        private_intervals.len() + shared_intervals.len() + zero_intervals.len()
-                    );
-                    print!("{{ ");
+                JifCmd::Intervals(s) => {
                     if s.zero {
-                        print!("private_intervals: {}, ", zero_intervals.len(),)
+                        json_value.insert("jif.zero_intervals", jif.n_zero_intervals())?;
                     }
                     if s.private {
-                        print!("shared_intervals: {}, ", private_intervals.len(),)
+                        json_value.insert("jif.private_intervals", jif.n_private_intervals())?;
                     }
                     if s.shared {
-                        print!("zero_intervals: {}, ", shared_intervals.len(),)
+                        json_value.insert("jif.shared_intervals", jif.n_shared_intervals())?;
                     }
                     if s.total {
-                        print!("intervals: {}, ", total_intervals.len());
+                        json_value.insert("jif.intervals", jif.n_intervals())?;
                     }
-                    println!("}}");
+                }
+            },
+            MaterializedCommand::Ord(o) => {
+                let ords = jif.ord_chunks();
+                match o {
+                    OrdCmd::All | OrdCmd::Range(IndexRange::None) => {
+                        json_value.insert("ord", format!("{ords:#x?}"))?;
+                    }
+                    OrdCmd::Len => {
+                        json_value.insert("ord.len", ords.len())?;
+                    }
+                    OrdCmd::Vmas => {
+                        json_value.insert(
+                            "ord.vmas",
+                            format!(
+                                "{}",
+                                ords.iter()
+                                    .filter_map(|o| jif.ord_vma(o))
+                                    .collect::<HashSet<_>>()
+                                    .len()
+                            ),
+                        )?;
+                    }
+                    OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
+                    OrdCmd::Range(IndexRange::RightOpen { start }) => {
+                        json_value.insert(
+                            "ord",
+                            format!(
+                                "{:x?}",
+                                if start < ords.len() {
+                                    &ords[start..]
+                                } else {
+                                    &[]
+                                }
+                            ),
+                        )?;
+                    }
+                    OrdCmd::Range(IndexRange::LeftOpen { end }) => {
+                        json_value.insert(
+                            "ord",
+                            format!("{:x?}", &ords[..std::cmp::min(end, ords.len())]),
+                        )?;
+                    }
+                    OrdCmd::Range(IndexRange::Closed { start, end }) => {
+                        json_value.insert(
+                            "ord",
+                            format!(
+                                "{:x?}",
+                                if start < ords.len() {
+                                    &ords[start..std::cmp::min(end, ords.len())]
+                                } else {
+                                    &[]
+                                }
+                            ),
+                        )?;
+                    }
+                    OrdCmd::Range(IndexRange::Index(idx)) => {
+                        if idx < ords.len() {
+                            json_value.insert("ord", format!("{:x?}", &ords[idx]))?;
+                        }
+                    }
+                    OrdCmd::Pages(s) => {
+                        if s.private {
+                            json_value.insert(
+                                "ord.private_pages",
+                                ords.iter()
+                                    .filter(|o| o.kind() == DataSource::Private)
+                                    .map(|o| o.size())
+                                    .sum::<u64>(),
+                            )?;
+                        }
+                        if s.shared {
+                            json_value.insert(
+                                "ord.shared_pages",
+                                ords.iter()
+                                    .filter(|o| o.kind() == DataSource::Shared)
+                                    .map(|o| o.size())
+                                    .sum::<u64>(),
+                            )?;
+                        }
+                        if s.zero {
+                            json_value.insert(
+                                "ord.zero_pages",
+                                ords.iter()
+                                    .filter(|o| o.kind() == DataSource::Zero)
+                                    .map(|o| o.size())
+                                    .sum::<u64>(),
+                            )?;
+                        }
+                        if s.total {
+                            json_value
+                                .insert("ord.pages", ords.iter().map(|o| o.size()).sum::<u64>())?;
+                        }
+                    }
+                    OrdCmd::Intervals(s) => {
+                        let mut total_intervals = HashSet::new();
+                        let mut private_intervals = HashSet::new();
+                        let mut shared_intervals = HashSet::new();
+                        let mut zero_intervals = HashSet::new();
+                        // ASSUMPTION: each ord chunk is in a single interval
+                        for o in ords {
+                            match jif.resolve(o.addr()) {
+                                Some(i) if i.source == DataSource::Private => {
+                                    total_intervals.insert(i.start);
+                                    private_intervals.insert(i.start);
+                                }
+                                Some(i) if i.source == DataSource::Shared => {
+                                    total_intervals.insert(i.start);
+                                    shared_intervals.insert(i.start);
+                                }
+                                Some(i) => {
+                                    assert!(i.source == DataSource::Zero);
+                                    total_intervals.insert(i.start);
+                                    zero_intervals.insert(i.start);
+                                }
+                                None => {
+                                    eprintln!(
+                                        "WARN: ordering segment {o:x?} is not mapped by the jif"
+                                    );
+                                }
+                            }
+                        }
+                        assert_eq!(
+                            total_intervals.len(),
+                            private_intervals.len() + shared_intervals.len() + zero_intervals.len()
+                        );
+                        if s.private {
+                            json_value.insert("ord.private_intervals", private_intervals.len())?;
+                        }
+                        if s.shared {
+                            json_value.insert("ord.shared_intervals", shared_intervals.len())?;
+                        }
+                        if s.zero {
+                            json_value.insert("ord.zero_intervals", zero_intervals.len())?;
+                        }
+                        if s.total {
+                            json_value.insert("ord.intervals", total_intervals.len())?;
+                        }
+                    }
                 }
             }
-        }
-        MaterializedCommand::Pheader(p) => {
-            let pheaders = jif.pheaders();
-            match p {
-                PheaderCmd::Len => println!("n_pheaders: {}", pheaders.len()),
-                PheaderCmd::All => println!("{:#x?}", pheaders),
-                PheaderCmd::Selector { range, selector } => {
-                    let ranged_pheaders = match range {
-                        IndexRange::None => pheaders,
-                        IndexRange::Closed { start, end } => {
-                            if start < pheaders.len() {
-                                &pheaders[start..std::cmp::min(end, pheaders.len())]
-                            } else {
-                                &[]
-                            }
-                        }
-                        IndexRange::LeftOpen { end } => {
-                            &pheaders[..std::cmp::min(end, pheaders.len())]
-                        }
-                        IndexRange::RightOpen { start } => {
-                            if start < pheaders.len() {
-                                &pheaders[start..]
-                            } else {
-                                &[]
-                            }
-                        }
-                        IndexRange::Index(idx) => {
-                            if idx < pheaders.len() {
-                                &pheaders[idx..(idx + 1)]
-                            } else {
-                                &[]
-                            }
-                        }
-                    };
-
-                    println!("[");
-                    for pheader in ranged_pheaders {
-                        print!("phdr {{ ");
-                        if selector.virtual_range {
-                            let (start, end) = pheader.virtual_range();
-                            print!("virtual_range: [{:#x}; {:#x}), ", start, end);
-                        }
-                        if selector.virtual_size {
-                            let (start, end) = pheader.virtual_range();
-                            print!("virtual_size: {:#x} B, ", end - start);
-                        }
-                        if selector.data_size {
-                            print!("data: {:#x} B, ", pheader.data_size());
-                        }
-                        if selector.pathname {
-                            if let Some(s) = pheader.pathname() {
-                                print!("path: {}, ", s);
-                            }
-                        }
-                        if selector.ref_offset {
-                            if let Some(offset) = pheader.ref_offset() {
-                                print!("ref_offset: {:#x}, ", offset);
-                            }
-                        }
-
-                        if selector.prot {
-                            let prot = pheader.prot();
-                            print!(
-                                "prot: {}{}{}, ",
-                                if prot & Prot::Read as u8 != 0 {
-                                    "r"
-                                } else {
-                                    "-"
-                                },
-                                if prot & Prot::Write as u8 != 0 {
-                                    "w"
-                                } else {
-                                    "-"
-                                },
-                                if prot & Prot::Exec as u8 != 0 {
-                                    "x"
-                                } else {
-                                    "-"
-                                },
-                            )
-                        }
-                        if selector.itree {
-                            print!("itree: {:?}, ", pheader.itree());
-                        }
-                        if selector.n_itree_nodes {
-                            print!("n_itree_nodes: {:?}, ", pheader.n_itree_nodes());
-                        }
-                        if selector.zero_pages {
-                            print!("zero_pages: {}, ", pheader.zero_pages())
-                        }
-                        if selector.private_pages {
-                            print!("private_pages: {}, ", pheader.private_pages())
-                        }
-                        if selector.shared_pages {
-                            print!("shared_pages: {}, ", pheader.shared_pages())
-                        }
-                        if selector.pages {
-                            print!("total_pages: {}, ", pheader.total_pages())
-                        }
-                        println!("}}")
+            MaterializedCommand::Pheader(p) => {
+                let pheaders = jif.pheaders();
+                match p {
+                    PheaderCmd::Len => {
+                        json_value.insert("pheader.len", pheaders.len())?;
                     }
-                    println!("]");
+                    PheaderCmd::All => {
+                        json_value.insert("pheader", format!("{:#x?}", pheaders))?;
+                    }
+                    PheaderCmd::Selector { range, selector } => {
+                        let ranged_pheaders = match range {
+                            IndexRange::None => pheaders,
+                            IndexRange::Closed { start, end } => {
+                                if start < pheaders.len() {
+                                    &pheaders[start..std::cmp::min(end, pheaders.len())]
+                                } else {
+                                    &[]
+                                }
+                            }
+                            IndexRange::LeftOpen { end } => {
+                                &pheaders[..std::cmp::min(end, pheaders.len())]
+                            }
+                            IndexRange::RightOpen { start } => {
+                                if start < pheaders.len() {
+                                    &pheaders[start..]
+                                } else {
+                                    &[]
+                                }
+                            }
+                            IndexRange::Index(idx) => {
+                                if idx < pheaders.len() {
+                                    &pheaders[idx..(idx + 1)]
+                                } else {
+                                    &[]
+                                }
+                            }
+                        };
+
+                        let mut pheaders = JsonValue::new_array();
+                        for pheader in ranged_pheaders {
+                            let mut pheader_json = JsonValue::new_object();
+                            if selector.virtual_range {
+                                let (start, end) = pheader.virtual_range();
+                                pheader_json.insert(
+                                    "virtual_range",
+                                    format!("[{:#x}; {:#x})", start, end),
+                                )?;
+                            }
+                            if selector.virtual_size {
+                                let (start, end) = pheader.virtual_range();
+                                pheader_json
+                                    .insert("virtual_size", format!("{:#x} B", end - start))?;
+                            }
+                            if selector.data_size {
+                                pheader_json
+                                    .insert("data_size", format!("{:#x} B", pheader.data_size()))?;
+                            }
+                            if selector.pathname {
+                                if let Some(s) = pheader.pathname() {
+                                    pheader_json.insert("path", s)?;
+                                }
+                            }
+                            if selector.ref_offset {
+                                if let Some(offset) = pheader.ref_offset() {
+                                    pheader_json.insert("ref_offset", offset)?;
+                                }
+                            }
+
+                            if selector.prot {
+                                let prot = pheader.prot();
+                                pheader_json.insert(
+                                    "prot",
+                                    format!(
+                                        "{}{}{}",
+                                        if prot & Prot::Read as u8 != 0 {
+                                            "r"
+                                        } else {
+                                            "-"
+                                        },
+                                        if prot & Prot::Write as u8 != 0 {
+                                            "w"
+                                        } else {
+                                            "-"
+                                        },
+                                        if prot & Prot::Exec as u8 != 0 {
+                                            "x"
+                                        } else {
+                                            "-"
+                                        },
+                                    ),
+                                )?;
+                            }
+                            if selector.itree {
+                                pheader_json.insert("itree", format!("{:?}, ", pheader.itree()))?;
+                            }
+                            if selector.n_itree_nodes {
+                                pheader_json.insert("itree.len", pheader.n_itree_nodes())?;
+                            }
+                            if selector.zero_pages {
+                                pheader_json.insert("zero_pages", pheader.zero_pages())?;
+                            }
+                            if selector.private_pages {
+                                pheader_json.insert("private_pages", pheader.private_pages())?;
+                            }
+                            if selector.shared_pages {
+                                pheader_json.insert("shared_pages", pheader.shared_pages())?;
+                            }
+                            if selector.pages {
+                                pheader_json.insert("pages", pheader.total_pages())?;
+                            }
+                            pheaders.push(pheader_json)?;
+                        }
+                        json_value.insert("pheaders", pheaders)?;
+                    }
                 }
             }
         }
     }
+
+    Ok(json_value)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -599,31 +692,54 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if args.raw {
-        let cmd: RawCommand = args.command.try_into().map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse raw selector command: {}\n{}",
-                e,
-                RAW_COMMAND_USAGE,
-            )
-        })?;
+    let json_value = if args.raw {
+        let cmds: Vec<RawCommand> = args
+            .commands
+            .into_iter()
+            .map(|x| x.try_into())
+            .collect::<Result<_, _>>()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to parse raw selector command: {}\n{}",
+                    e,
+                    RAW_COMMAND_USAGE,
+                )
+            })?;
+
+        let cmds = if cmds.is_empty() {
+            vec![RawCommand::Jif(RawJifCmd::All)]
+        } else {
+            cmds
+        };
 
         let mut file = BufReader::new(File::open(&args.jif_file).context("failed to open file")?);
         let jif = JifRaw::from_reader(&mut file).context("failed to open jif in raw mode")?;
-        select_raw(jif, cmd)
+        select_raw(jif, cmds).map_err(|e| anyhow::anyhow!("json error: {e:?}"))
     } else {
-        let cmd: MaterializedCommand = args.command.try_into().map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse materialized selector command: {}\n{}",
-                e,
-                MATERIALIZED_COMMAND_USAGE
-            )
-        })?;
+        let cmds: Vec<MaterializedCommand> = args
+            .commands
+            .into_iter()
+            .map(|x| x.try_into())
+            .collect::<Result<_, _>>()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to parse materialized selector command: {}\n{}",
+                    e,
+                    MATERIALIZED_COMMAND_USAGE,
+                )
+            })?;
+
+        let cmds = if cmds.is_empty() {
+            vec![MaterializedCommand::Jif(JifCmd::All)]
+        } else {
+            cmds
+        };
 
         let mut file = BufReader::new(File::open(&args.jif_file).context("failed to open file")?);
         let jif = Jif::from_reader(&mut file).context("failed to open jif")?;
-        select_materialized(jif, cmd)
-    }
+        select_materialized(jif, cmds).map_err(|e| anyhow::anyhow!("json error: {e:?}"))
+    }?;
 
+    print!("{}", json_value.pretty(4));
     Ok(())
 }
