@@ -16,11 +16,15 @@ jif.zero_intervals                 number of zero intervals in the jif (counting
 ord                                select all the ord chunks
 ord[<range>]                       select the ord chunks in the range
 ord.len                            number of ord chunks
-ord.size                           number of pages in the ordering section
+ord.vmas                           number of vmas in the ordering section
+ord.pages                          number of pages in the ordering section
 ord.private_pages                  number of private pages in the ordering section
 ord.shared_pages                   number of shared pages in the ordering section
-ord.zero_pages                     number of shared pages in the ordering section
-ord.vmas                           number of vmas in the ordering section
+ord.zero_pages                     number of zero pages in the ordering section
+ord.intervals                      number of intervals in the ordering section
+ord.private_intervals              number of private intervals in the ordering section
+ord.shared_intervals               number of shared intervals in the ordering section
+ord.zero_intervals                 number of zero intervals in the ordering section
 
 pheader                            select all the pheaders
 pheader[<range>]                   select the pheaders in the range
@@ -68,13 +72,12 @@ pub(crate) enum OrdCmd {
     Range(IndexRange),
     // Number of intervals
     Len,
-    // Number of bytes
-    Size,
-    PrivatePages,
-    SharedPages,
-    ZeroPages,
     Files,
     Vmas,
+    // Number of pages
+    Pages(RegionTypeSelector),
+    // Number of intervals
+    Intervals(RegionTypeSelector),
 }
 
 #[derive(Debug, Default)]
@@ -264,33 +267,83 @@ impl TryFrom<Option<String>> for MaterializedCommand {
                         MaterializedCommand::Ord(OrdCmd::Range(range))
                     } else {
                         let options = [
-                            "",
-                            ".len",
-                            ".size",
-                            ".intervals",
-                            ".private_pages",
-                            ".shared_pages",
-                            ".zero_pages",
-                            ".files",
-                            ".vmas",
+                            "",                   // 0
+                            ".len",               // 1
+                            ".files",             // 2
+                            ".vmas",              // 3
+                            ".pages",             // 4
+                            ".private_pages",     // 5
+                            ".shared_pages",      // 6
+                            ".zero_pages",        // 7
+                            ".intervals",         // 8
+                            ".private_intervals", // 9
+                            ".shared_intervals",  // 10
+                            ".zero_intervals",    // 11
                         ];
-                        let idx = find_single_option(trimmed, suffix, &options)?;
-                        if options[idx] == ".len" {
-                            MaterializedCommand::Ord(OrdCmd::Len)
-                        } else if options[idx] == ".size" {
-                            MaterializedCommand::Ord(OrdCmd::Size)
-                        } else if options[idx] == ".private_pages" {
-                            MaterializedCommand::Ord(OrdCmd::PrivatePages)
-                        } else if options[idx] == ".shared_pages" {
-                            MaterializedCommand::Ord(OrdCmd::SharedPages)
-                        } else if options[idx] == ".zero_pages" {
-                            MaterializedCommand::Ord(OrdCmd::ZeroPages)
-                        } else if options[idx] == ".files" {
-                            MaterializedCommand::Ord(OrdCmd::Files)
-                        } else if options[idx] == ".vmas" {
-                            MaterializedCommand::Ord(OrdCmd::Vmas)
-                        } else {
+                        let found_options = find_multiple_option(trimmed, suffix, &options)?;
+
+                        if found_options.contains(&0) {
                             MaterializedCommand::Ord(OrdCmd::All)
+                        } else if found_options.contains(&1) {
+                            if found_options.len() > 1 {
+                                return Err(anyhow::anyhow!(
+                                    "len option is incompatible with the other options"
+                                ));
+                            }
+
+                            MaterializedCommand::Ord(OrdCmd::Len)
+                        } else if found_options.contains(&2) {
+                            if found_options.len() > 1 {
+                                return Err(anyhow::anyhow!(
+                                    "files option is incompatible with the other options"
+                                ));
+                            }
+
+                            MaterializedCommand::Ord(OrdCmd::Files)
+                        } else if found_options.contains(&3) {
+                            if found_options.len() > 1 {
+                                return Err(anyhow::anyhow!(
+                                    "vmas option is incompatible with the other options"
+                                ));
+                            }
+
+                            MaterializedCommand::Ord(OrdCmd::Vmas)
+                        } else if found_options.contains(&4)
+                            || found_options.contains(&5)
+                            || found_options.contains(&6)
+                            || found_options.contains(&7)
+                        {
+                            let mut selector = RegionTypeSelector::default();
+                            if found_options.contains(&4) {
+                                selector.total = true;
+                            }
+                            if found_options.contains(&5) {
+                                selector.private = true;
+                            }
+                            if found_options.contains(&6) {
+                                selector.shared = true;
+                            }
+                            if found_options.contains(&7) {
+                                selector.zero = true;
+                            }
+
+                            MaterializedCommand::Ord(OrdCmd::Pages(selector))
+                        } else {
+                            let mut selector = RegionTypeSelector::default();
+                            if found_options.contains(&8) {
+                                selector.total = true;
+                            }
+                            if found_options.contains(&9) {
+                                selector.private = true;
+                            }
+                            if found_options.contains(&10) {
+                                selector.shared = true;
+                            }
+                            if found_options.contains(&11) {
+                                selector.zero = true;
+                            }
+
+                            MaterializedCommand::Ord(OrdCmd::Intervals(selector))
                         }
                     }
                 } else if trimmed.starts_with("pheader") {
@@ -418,26 +471,41 @@ impl TryFrom<Option<String>> for RawCommand {
                         RawCommand::Ord(OrdCmd::Range(range))
                     } else {
                         let options = [
-                            "",
-                            ".len",
-                            ".size",
-                            ".private_pages",
-                            ".shared_pages",
-                            ".zero_pages",
+                            "",               // 0
+                            ".len",           // 1
+                            ".pages",         // 2
+                            ".private_pages", // 3
+                            ".shared_pages",  // 4
+                            ".zero_pages",    // 5
                         ];
-                        let idx = find_single_option(trimmed, suffix, &options)?;
-                        if options[idx] == ".len" {
-                            RawCommand::Ord(OrdCmd::Len)
-                        } else if options[idx] == ".size" {
-                            RawCommand::Ord(OrdCmd::Size)
-                        } else if options[idx] == ".private_pages" {
-                            RawCommand::Ord(OrdCmd::PrivatePages)
-                        } else if options[idx] == ".shared_pages" {
-                            RawCommand::Ord(OrdCmd::SharedPages)
-                        } else if options[idx] == ".zero_pages" {
-                            RawCommand::Ord(OrdCmd::ZeroPages)
-                        } else {
+                        let found_options = find_multiple_option(trimmed, suffix, &options)?;
+
+                        if found_options.contains(&0) {
                             RawCommand::Ord(OrdCmd::All)
+                        } else if found_options.contains(&1) {
+                            if found_options.len() > 1 {
+                                return Err(anyhow::anyhow!(
+                                    "len option is incompatible with the other options"
+                                ));
+                            }
+
+                            RawCommand::Ord(OrdCmd::Len)
+                        } else {
+                            let mut selector = RegionTypeSelector::default();
+                            if found_options.contains(&2) {
+                                selector.total = true;
+                            }
+                            if found_options.contains(&3) {
+                                selector.private = true;
+                            }
+                            if found_options.contains(&4) {
+                                selector.shared = true;
+                            }
+                            if found_options.contains(&5) {
+                                selector.zero = true;
+                            }
+
+                            RawCommand::Ord(OrdCmd::Pages(selector))
                         }
                     }
                 } else if trimmed.starts_with("itree") {

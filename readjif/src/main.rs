@@ -128,30 +128,6 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
             match o {
                 OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
-                OrdCmd::Size => {
-                    println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>())
-                }
-                OrdCmd::PrivatePages => println!(
-                    "private_pages: {}",
-                    ords.iter()
-                        .filter(|o| o.kind() == DataSource::Private)
-                        .map(|o| o.size())
-                        .sum::<u64>()
-                ),
-                OrdCmd::SharedPages => println!(
-                    "shared_pages: {}",
-                    ords.iter()
-                        .filter(|o| o.kind() == DataSource::Shared)
-                        .map(|o| o.size())
-                        .sum::<u64>()
-                ),
-                OrdCmd::ZeroPages => println!(
-                    "zero_pages: {}",
-                    ords.iter()
-                        .filter(|o| o.kind() == DataSource::Zero)
-                        .map(|o| o.size())
-                        .sum::<u64>()
-                ),
                 OrdCmd::Vmas => panic!("cannot get vmas for an ord chunk in a raw JIF"),
                 OrdCmd::Files => panic!("cannot get files for an ord chunk in a raw JIF"),
                 OrdCmd::Range(IndexRange::RightOpen { start }) => println!(
@@ -177,6 +153,43 @@ fn select_raw(jif: JifRaw, cmd: RawCommand) {
                     if idx < ords.len() {
                         println!("{:x?}", &ords[idx]);
                     }
+                }
+                OrdCmd::Pages(s) => {
+                    print!("{{ ");
+                    if s.zero {
+                        print!(
+                            "private_pages: {}, ",
+                            ords.iter()
+                                .filter(|o| o.kind() == DataSource::Private)
+                                .map(|o| o.size())
+                                .sum::<u64>()
+                        )
+                    }
+                    if s.private {
+                        print!(
+                            "shared_pages: {}, ",
+                            ords.iter()
+                                .filter(|o| o.kind() == DataSource::Shared)
+                                .map(|o| o.size())
+                                .sum::<u64>()
+                        )
+                    }
+                    if s.shared {
+                        print!(
+                            "zero_pages: {}, ",
+                            ords.iter()
+                                .filter(|o| o.kind() == DataSource::Zero)
+                                .map(|o| o.size())
+                                .sum::<u64>()
+                        )
+                    }
+                    if s.total {
+                        print!("pages: {}, ", ords.iter().map(|o| o.size()).sum::<u64>())
+                    }
+                    println!("}}");
+                }
+                OrdCmd::Intervals(_) => {
+                    panic!("error: cannot select ord intervals on raw jif");
                 }
             }
         }
@@ -353,30 +366,6 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
             match o {
                 OrdCmd::All | OrdCmd::Range(IndexRange::None) => println!("{:#x?}", ords),
                 OrdCmd::Len => println!("ord_len: {}", ords.len()),
-                OrdCmd::Size => {
-                    println!("ord_size: {}", ords.iter().map(|o| o.size()).sum::<u64>());
-                }
-                OrdCmd::PrivatePages => println!(
-                    "private_pages: {}",
-                    ords.iter()
-                        .filter(|o| o.kind() == DataSource::Private)
-                        .map(|o| o.size())
-                        .sum::<u64>()
-                ),
-                OrdCmd::SharedPages => println!(
-                    "shared_pages: {}",
-                    ords.iter()
-                        .filter(|o| o.kind() == DataSource::Shared)
-                        .map(|o| o.size())
-                        .sum::<u64>()
-                ),
-                OrdCmd::ZeroPages => println!(
-                    "zero_pages: {}",
-                    ords.iter()
-                        .filter(|o| o.kind() == DataSource::Zero)
-                        .map(|o| o.size())
-                        .sum::<u64>()
-                ),
                 OrdCmd::Vmas => println!(
                     "{}",
                     ords.iter()
@@ -408,6 +397,85 @@ fn select_materialized(jif: Jif, cmd: MaterializedCommand) {
                     if idx < ords.len() {
                         println!("{:#x?}", &ords[idx]);
                     }
+                }
+                OrdCmd::Pages(s) => {
+                    print!("{{ ");
+                    if s.zero {
+                        print!(
+                            "private_pages: {}, ",
+                            ords.iter()
+                                .filter(|o| o.kind() == DataSource::Private)
+                                .map(|o| o.size())
+                                .sum::<u64>()
+                        )
+                    }
+                    if s.private {
+                        print!(
+                            "shared_pages: {}, ",
+                            ords.iter()
+                                .filter(|o| o.kind() == DataSource::Shared)
+                                .map(|o| o.size())
+                                .sum::<u64>()
+                        )
+                    }
+                    if s.shared {
+                        print!(
+                            "zero_pages: {}, ",
+                            ords.iter()
+                                .filter(|o| o.kind() == DataSource::Zero)
+                                .map(|o| o.size())
+                                .sum::<u64>()
+                        )
+                    }
+                    if s.total {
+                        print!("pages: {}, ", ords.iter().map(|o| o.size()).sum::<u64>())
+                    }
+                    println!("}}");
+                }
+                OrdCmd::Intervals(s) => {
+                    let mut total_intervals = HashSet::new();
+                    let mut private_intervals = HashSet::new();
+                    let mut shared_intervals = HashSet::new();
+                    let mut zero_intervals = HashSet::new();
+                    // ASSUMPTION: each ord chunk is in a single interval
+                    for o in ords {
+                        match jif.resolve(o.addr()) {
+                            Some(i) if i.source == DataSource::Private => {
+                                total_intervals.insert(i.start);
+                                private_intervals.insert(i.start);
+                            }
+                            Some(i) if i.source == DataSource::Shared => {
+                                total_intervals.insert(i.start);
+                                shared_intervals.insert(i.start);
+                            }
+                            Some(i) => {
+                                assert!(i.source == DataSource::Zero);
+                                total_intervals.insert(i.start);
+                                zero_intervals.insert(i.start);
+                            }
+                            None => {
+                                eprintln!("WARN: ordering segment {o:x?} is not mapped by the jif");
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        total_intervals.len(),
+                        private_intervals.len() + shared_intervals.len() + zero_intervals.len()
+                    );
+                    print!("{{ ");
+                    if s.zero {
+                        print!("private_intervals: {}, ", zero_intervals.len(),)
+                    }
+                    if s.private {
+                        print!("shared_intervals: {}, ", private_intervals.len(),)
+                    }
+                    if s.shared {
+                        print!("zero_intervals: {}, ", shared_intervals.len(),)
+                    }
+                    if s.total {
+                        print!("intervals: {}, ", total_intervals.len());
+                    }
+                    println!("}}");
                 }
             }
         }
